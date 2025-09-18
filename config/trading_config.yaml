@@ -1,0 +1,4 @@
+# Nautilus Trader Configuration  
+trader_id: 'TRADER-001'  
+environment: 'backtest'  
+logging_level: 'INFO'  

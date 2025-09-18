@@ -1,0 +1,25 @@
+data_type,date_or_month,interval,is_monthly,status,symbol
+klines,2025-09-04,1m,False,Missing or invalid after processing,BTCUSDT
+klines,2025-09-05,1m,False,Missing or invalid after processing,BTCUSDT
+klines,2025-09-06,1m,False,Missing or invalid after processing,BTCUSDT
+bookDepth,2025-09-04,N/A,False,Missing or invalid after processing,BTCUSDT
+bookDepth,2025-09-05,N/A,False,Missing or invalid after processing,BTCUSDT
+bookDepth,2025-09-06,N/A,False,Missing or invalid after processing,BTCUSDT
+metrics,2025-09-04,N/A,False,Missing or invalid after processing,BTCUSDT
+metrics,2025-09-05,N/A,False,Missing or invalid after processing,BTCUSDT
+metrics,2025-09-06,N/A,False,Missing or invalid after processing,BTCUSDT
+trades,2025-09-04,N/A,False,Missing or invalid after processing,BTCUSDT
+trades,2025-09-05,N/A,False,Missing or invalid after processing,BTCUSDT
+trades,2025-09-06,N/A,False,Missing or invalid after processing,BTCUSDT
+aggTrades,2025-09-04,N/A,False,Missing or invalid after processing,BTCUSDT
+aggTrades,2025-09-05,N/A,False,Missing or invalid after processing,BTCUSDT
+aggTrades,2025-09-06,N/A,False,Missing or invalid after processing,BTCUSDT
+indexPriceKlines,2025-09-04,1m,False,Missing or invalid after processing,BTCUSDT
+indexPriceKlines,2025-09-05,1m,False,Missing or invalid after processing,BTCUSDT
+indexPriceKlines,2025-09-06,1m,False,Missing or invalid after processing,BTCUSDT
+markPriceKlines,2025-09-04,1m,False,Missing or invalid after processing,BTCUSDT
+markPriceKlines,2025-09-05,1m,False,Missing or invalid after processing,BTCUSDT
+markPriceKlines,2025-09-06,1m,False,Missing or invalid after processing,BTCUSDT
+premiumIndexKlines,2025-09-04,1m,False,Missing or invalid after processing,BTCUSDT
+premiumIndexKlines,2025-09-05,1m,False,Missing or invalid after processing,BTCUSDT
+premiumIndexKlines,2025-09-06,1m,False,Missing or invalid after processing,BTCUSDT

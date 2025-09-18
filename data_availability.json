@@ -1,0 +1,31 @@
+{
+  "BTCUSDT": {
+    "aggTrades": {
+      "all": null
+    },
+    "bookDepth": {
+      "all": null
+    },
+    "fundingRate": {
+      "all": null
+    },
+    "indexPriceKlines": {
+      "1m": null
+    },
+    "klines": {
+      "1m": null
+    },
+    "markPriceKlines": {
+      "1m": null
+    },
+    "metrics": {
+      "all": null
+    },
+    "premiumIndexKlines": {
+      "1m": null
+    },
+    "trades": {
+      "all": null
+    }
+  }
+}
