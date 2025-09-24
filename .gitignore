@@ -125,3 +125,9 @@ outputs/
 extras/
 *.db
 *.db-*
+
+# Binance Data Downloader specific
+data/
+downloads/
+reports/
+data_availability.json

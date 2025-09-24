@@ -16,21 +16,49 @@ This project provides a unified, intelligent tool to discover, download, verify,
 
 ## Project Structure
 
--   `unified_downloader.py` - Main script with enhanced validation, help system, and comprehensive data support
--   `binance_downloader.py` - Legacy downloader (superseded by unified version)
--   `discover_data_ranges.py` - Standalone discovery utility (functionality integrated into unified script)
--   `data_availability.json` - Cached discovery results for earliest available dates per symbol/data type
--   `run_edge_case_tests.sh` - Comprehensive edge case test suite (50+ tests)
--   `quick_edge_test.sh` - Quick testing utility for specific categories
--   `EDGE_CASE_TESTING.md` - Complete testing documentation and guidelines
--   `requirements.txt` - Python dependencies
+```
+binance-history-data-downloader/
+├── src/                              # Core source code
+│   ├── unified_downloader.py         # Main enhanced downloader script
+│   ├── binance_downloader.py         # Legacy downloader (maintained for compatibility)
+│   ├── discover_data_ranges.py       # Data discovery utility
+│   ├── error_handling.py             # Enhanced error handling system
+│   └── temporal_gap_detector.py      # Gap analysis and temporal validation
+├── tests/                            # Comprehensive test suite
+│   ├── run_edge_case_tests.sh        # Complete edge case test suite (50+ tests)
+│   ├── quick_edge_test.sh            # Quick testing utility by category
+│   ├── test_enhanced_features.py     # Enhanced features unit tests
+│   ├── test_real_download.py         # Real-world download testing
+│   ├── test_historical.py           # Historical data validation tests
+│   ├── test_endpoints.py            # API endpoint testing
+│   └── test_simple_downloader.py    # Basic downloader functionality tests
+├── scripts/                          # Utility scripts and examples
+│   └── example_usage.py              # Usage examples and demonstrations
+├── docs/                             # Documentation and guides
+│   ├── EDGE_CASE_TESTING.md          # Complete edge case testing guide
+│   ├── ENHANCED_FEATURES.md          # Enhanced features documentation
+│   ├── CRYPTO_MARKETS_CORRECTION.md  # 24/7 crypto market handling notes
+│   ├── docs_clean_downloader.md      # Clean implementation documentation
+│   └── migliorare_binance_downloader.md  # Improvement suggestions
+├── config/                           # Configuration files
+│   └── binance_config.py             # Binance API configuration
+├── README.md                         # This file - comprehensive project documentation
+├── requirements.txt                  # Python dependencies
+├── .gitignore                        # Git ignore rules (excludes data/, downloads/, reports/)
+├── data/                            # Downloaded CSV data files (git-ignored)
+├── downloads/                       # Raw ZIP archives (git-ignored)
+├── reports/                         # Analysis reports (git-ignored)
+└── logs/                           # Application logs (git-ignored)
+```
 
-## Directory Structure
+## Data Directories (Auto-created, Git-ignored)
 
--   `downloads/` - Contains downloaded raw `.zip` archive files, organized by symbol/type/interval. (Can be cleaned up automatically by the script).
--   `data/` - Contains the extracted `.csv` data files, organized by symbol/type/interval.
--   `logs/` - Contains timestamped application log files.
--   `reports/` - Contains `.csv` reports detailing any missing or invalid files found during the process.
+The following directories are automatically created during execution and excluded from git:
+
+-   `data/` - Extracted CSV data files organized by symbol/data_type/interval
+-   `downloads/` - Raw ZIP archive files (can be auto-cleaned after extraction)
+-   `logs/` - Timestamped application log files with detailed execution info
+-   `reports/` - Analysis reports including gap analysis and missing file reports
 
 ## Supported Data Types
 
@@ -64,34 +92,34 @@ This project provides a unified, intelligent tool to discover, download, verify,
 ### Enhanced Help System
 View comprehensive help with detailed descriptions, examples, and data type documentation:
 ```bash
-python unified_downloader.py --help
+python src/unified_downloader.py --help
 ```
 
 ### Basic Usage Examples
 
 **Default Download (BTCUSDT, BTCUSDC from 2020-01-01):**
 ```bash
-python unified_downloader.py
+python src/unified_downloader.py
 ```
 
 **Specify Data Types and Intervals:**
 ```bash
-python unified_downloader.py --data-types "klines,trades" --interval 5m --start-date 2020-01-01 --end-date 2020-01-07
+python src/unified_downloader.py --data-types "klines,trades" --interval 5m --start-date 2020-01-01 --end-date 2020-01-07
 ```
 
 **Download Order Book Data with Custom Date Range:**
 ```bash
-python unified_downloader.py --data-types bookDepth --start-date 2023-01-01 --end-date 2023-01-31 --verbose
+python src/unified_downloader.py --data-types bookDepth --start-date 2023-01-01 --end-date 2023-01-31 --verbose
 ```
 
 **Multiple Symbols with All Data Types:**
 ```bash
-python unified_downloader.py --symbols "BTCUSDT,ETHUSDT,ADAUSDT" --interval 1h --start-date 2021-01-01
+python src/unified_downloader.py --symbols "BTCUSDT,ETHUSDT,ADAUSDT" --interval 1h --start-date 2021-01-01
 ```
 
 **Monthly Funding Rate Data:**
 ```bash
-python unified_downloader.py --data-types fundingRate --start-date 2022-01-01 --end-date 2022-12-31
+python src/unified_downloader.py --data-types fundingRate --start-date 2022-01-01 --end-date 2022-12-31
 ```
 
 The script will:
@@ -109,14 +137,14 @@ The system provides intelligent validation with helpful error messages:
 
 **Smart Typo Detection:**
 ```bash
-# Input: --data-types "kline,trade"
+# Input: python src/unified_downloader.py --data-types "kline,trade"
 # Output: Did you mean 'klines' instead of 'kline'?
 #         Did you mean 'trades' instead of 'trade'?
 ```
 
 **Interval Format Assistance:**
 ```bash
-# Input: --interval "5min"
+# Input: python src/unified_downloader.py --interval "5min"
 # Output: Did you mean '5m' instead of '5min'?
 ```
 
@@ -132,15 +160,15 @@ Comprehensive test suite for system robustness:
 
 **Run Complete Test Suite (50+ test cases):**
 ```bash
-./run_edge_case_tests.sh
+cd tests && ./run_edge_case_tests.sh
 ```
 
 **Quick Category Tests:**
 ```bash
-./quick_edge_test.sh validation   # Test input validation
-./quick_edge_test.sh intervals    # Test interval formats
-./quick_edge_test.sh dates        # Test date validation
-./quick_edge_test.sh functional   # Test functional edge cases
+cd tests && ./quick_edge_test.sh validation   # Test input validation
+cd tests && ./quick_edge_test.sh intervals    # Test interval formats
+cd tests && ./quick_edge_test.sh dates        # Test date validation
+cd tests && ./quick_edge_test.sh functional   # Test functional edge cases
 ```
 
 The test suite includes timeout protection (60s per test) and comprehensive reporting with automatic result classification.

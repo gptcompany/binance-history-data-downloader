@@ -9,7 +9,7 @@
 # =============================================================================
 
 TIMEOUT_SECONDS=60
-PYTHON_SCRIPT="unified_downloader.py"
+PYTHON_SCRIPT="../src/unified_downloader.py"
 
 # Colors
 RED='\033[0;31m'

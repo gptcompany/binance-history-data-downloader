@@ -13,7 +13,7 @@ set -e
 
 # Configuration
 TIMEOUT_SECONDS=60
-PYTHON_SCRIPT="unified_downloader.py"
+PYTHON_SCRIPT="../src/unified_downloader.py"
 TEST_LOG="edge_case_test_results.log"
 SUMMARY_LOG="edge_case_test_summary.log"
 
