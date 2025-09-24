@@ -20,6 +20,15 @@ from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 from tqdm import tqdm # Optional progress bar
 
+# Import enhanced error handling and gap detection modules
+from error_handling import (
+    EnhancedErrorHandler, ErrorClassifier, ErrorCategory,
+    error_statistics
+)
+from temporal_gap_detector import (
+    TemporalGapDetector, analyze_temporal_gaps
+)
+
 # --- Configuration ---
 BASE_URL = "https://data.binance.vision/data/futures/um"
 DEFAULT_SYMBOLS = ["BTCUSDT", "BTCUSDC"]
@@ -33,7 +42,7 @@ LOGS_DIR = Path("logs")
 # Data types configuration (can be expanded)
 # Define types that use intervals globally
 INTERVAL_TYPES = ["klines", "indexPriceKlines", "markPriceKlines", "premiumIndexKlines"]
-DEFAULT_KLINES_INTERVAL = "1m" # Default interval for klines types
+DEFAULT_KLINES_INTERVAL = "1m" # Default interval for klines types (will be overridden by args)
 ALL_DATA_TYPES = [
     "klines", "bookDepth", "metrics", "trades", "aggTrades",
     "indexPriceKlines", "markPriceKlines", "premiumIndexKlines", "fundingRate"
@@ -41,13 +50,39 @@ ALL_DATA_TYPES = [
 DAILY_TYPES = [dt for dt in ALL_DATA_TYPES if dt != "fundingRate"]
 MONTHLY_TYPES = ["fundingRate"]
 
+# All supported intervals from Binance data.binance.vision
+ALL_INTERVALS = [
+    "1s", "1m", "3m", "5m", "15m", "30m",
+    "1h", "2h", "4h", "6h", "8h", "12h",
+    "1d", "3d", "1w", "1mo"
+]
+
+# Data type descriptions for help documentation
+DATA_TYPE_DESCRIPTIONS = {
+    "klines": "OHLCV candlestick/kline data with volume and trade count",
+    "bookDepth": "Order book depth snapshots at regular intervals",
+    "metrics": "Trading metrics and market statistics",
+    "trades": "Individual trade records (tick data) with price, quantity, and timestamp",
+    "aggTrades": "Aggregated trade data with combined volume and price information",
+    "indexPriceKlines": "Index price candlestick data for price indices",
+    "markPriceKlines": "Mark price candlestick data for margin trading",
+    "premiumIndexKlines": "Premium index candlestick data for futures premium calculation",
+    "fundingRate": "Funding rate data for perpetual contracts (monthly files only)"
+}
+
 # Download/Retry Settings
 MAX_CONCURRENT_DOWNLOADS = 5
-MAX_DOWNLOAD_RETRIES = 2 # Number of redownload attempts *after* initial check fails
-DOWNLOAD_RETRY_DELAY = 5 # seconds between download retries
+MAX_DOWNLOAD_RETRIES = 3 # Enhanced retry logic through error handling system
+DOWNLOAD_RETRY_DELAY = 5 # seconds between download retries (legacy - now handled by smart retry)
 CHECKSUM_VERIFICATION = True # Verify checksum after download
 CLEAN_UP_ZIPS = True # Delete ZIP after successful extraction
 VERIFY_EXTRACTED_FILES = True # Check if extracted CSV is valid/non-empty
+
+# Enhanced Error Handling Settings
+ENABLE_ENHANCED_ERROR_HANDLING = True # Use new error handling system
+CIRCUIT_BREAKER_THRESHOLD = 5 # Number of failures before circuit breaker opens
+ENABLE_TEMPORAL_GAP_ANALYSIS = True # Enable gap detection and reporting
+GAP_ANALYSIS_AFTER_DOWNLOAD = True # Run gap analysis after download phase
 
 # Discovery Settings
 DISCOVERY_RETRY_COUNT = 3
@@ -324,23 +359,65 @@ async def discover_earliest_date(
 # --- Download/Verify/Extract Functions ---
 
 async def download_file(session: aiohttp.ClientSession, url: str, destination_path: Path, log_prefix: str) -> bool:
-    """Downloads a file asynchronously with retries using aiohttp."""
+    """Downloads a file asynchronously with enhanced error handling and smart retries."""
+    if ENABLE_ENHANCED_ERROR_HANDLING:
+        return await download_file_enhanced(session, url, destination_path, log_prefix)
+    else:
+        return await download_file_legacy(session, url, destination_path, log_prefix)
+
+async def download_file_enhanced(session: aiohttp.ClientSession, url: str, destination_path: Path, log_prefix: str) -> bool:
+    """Enhanced download with smart retry logic and error categorization."""
+    error_handler = EnhancedErrorHandler(max_retries=MAX_DOWNLOAD_RETRIES, circuit_breaker_threshold=CIRCUIT_BREAKER_THRESHOLD)
+    endpoint_key = f"download_{url.split('//')[-1].split('/')[0]}"
+
+    async def download_operation():
+        async with session.get(url, timeout=60) as response:
+            if response.status == 404:
+                logger.info(f"{log_prefix} File not available (404): {url}")
+                return False  # Don't retry 404s
+            response.raise_for_status()
+
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(destination_path, 'wb') as f:
+                async for chunk in response.content.iter_chunked(8192):
+                    f.write(chunk)
+
+            logger.info(f"{log_prefix} Successfully downloaded {destination_path.name}")
+            return True
+
+    try:
+        result = await error_handler.execute_with_protection(
+            operation=download_operation,
+            endpoint_key=endpoint_key,
+            context={"operation": "download", "url": url, "destination": str(destination_path), "log_prefix": log_prefix}
+        )
+        return result
+    except Exception as e:
+        # Record error statistics
+        error_info = ErrorClassifier.classify_exception(e, {"url": url, "operation": "download"})
+        error_statistics.record_error(error_info, endpoint_key)
+
+        logger.error(f"{log_prefix} Enhanced download failed for {url}: {error_info.category.value} - {error_info.message}")
+        return False
+
+async def download_file_legacy(session: aiohttp.ClientSession, url: str, destination_path: Path, log_prefix: str) -> bool:
+    """Legacy download function (original implementation for fallback)."""
     retries = 0
     # Use MAX_DOWNLOAD_RETRIES + 1 total attempts (initial + retries)
     while retries <= MAX_DOWNLOAD_RETRIES:
         try:
             attempt_num = retries + 1
             logger.debug(f"{log_prefix} Download attempt {attempt_num}/{MAX_DOWNLOAD_RETRIES + 1}: {url}")
-            async with session.get(url, timeout=60) as response: # Use a reasonable timeout
+            async with session.get(url, timeout=60) as response:
                 if response.status == 404:
                     logger.info(f"{log_prefix} File not available (404): {url}")
                     return False  # Don't retry 404s
-                response.raise_for_status()  # Raise for other bad status codes (e.g., 5xx)
+                response.raise_for_status()
 
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(destination_path, 'wb') as f:
                     while True:
-                        chunk = await response.content.read(8192) # Read in larger chunks
+                        chunk = await response.content.read(8192)
                         if not chunk:
                             break
                         f.write(chunk)
@@ -355,31 +432,87 @@ async def download_file(session: aiohttp.ClientSession, url: str, destination_pa
             await asyncio.sleep(DOWNLOAD_RETRY_DELAY)
         except Exception as e:
             logger.error(f"{log_prefix} Unexpected error during download of {url}: {type(e).__name__} - {e}")
-            return False # Don't retry unexpected errors
-    return False # Should only be reached if loop finishes due to retries exceeded
+            return False
+    return False
 
 async def verify_checksum(session: aiohttp.ClientSession, file_path: Path, checksum_url: str, log_prefix: str) -> bool:
-    """Verifies the checksum of a downloaded file using aiohttp."""
+    """Verifies the checksum of a downloaded file with enhanced error handling."""
     if not CHECKSUM_VERIFICATION:
         logger.debug(f"{log_prefix} Checksum verification skipped.")
         return True
 
+    if ENABLE_ENHANCED_ERROR_HANDLING:
+        return await verify_checksum_enhanced(session, file_path, checksum_url, log_prefix)
+    else:
+        return await verify_checksum_legacy(session, file_path, checksum_url, log_prefix)
+
+async def verify_checksum_enhanced(session: aiohttp.ClientSession, file_path: Path, checksum_url: str, log_prefix: str) -> bool:
+    """Enhanced checksum verification with smart retry logic."""
+    error_handler = EnhancedErrorHandler(max_retries=2, circuit_breaker_threshold=CIRCUIT_BREAKER_THRESHOLD)
+    endpoint_key = f"checksum_{checksum_url.split('//')[-1].split('/')[0]}"
+
+    async def verify_operation():
+        # 1. Download checksum file content
+        logger.debug(f"{log_prefix} Downloading checksum: {checksum_url}")
+        async with session.get(checksum_url, timeout=15) as response:
+            if response.status == 404:
+                logger.warning(f"{log_prefix} Checksum file not found: {checksum_url}. Cannot verify.")
+                return False
+            response.raise_for_status()
+            checksum_content = await response.text()
+            expected_checksum = checksum_content.split()[0].lower()
+
+        # 2. Calculate checksum of the downloaded file
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(65536), b""):
+                sha256_hash.update(byte_block)
+        calculated_checksum = sha256_hash.hexdigest().lower()
+
+        # 3. Compare checksums
+        if calculated_checksum == expected_checksum:
+            logger.info(f"{log_prefix} Checksum verified for {file_path.name}")
+            return True
+        else:
+            logger.error(f"{log_prefix} Checksum mismatch for {file_path.name}: Expected {expected_checksum}, Got {calculated_checksum}")
+            # This should trigger re-download, so we return False
+            error_info = ErrorClassifier.classify_exception(
+                Exception(f"Checksum mismatch: expected {expected_checksum}, got {calculated_checksum}"),
+                {"file": str(file_path), "operation": "checksum_verification"}
+            )
+            error_info.category = ErrorCategory.DATA_CHECKSUM_MISMATCH
+            error_statistics.record_error(error_info, endpoint_key)
+            return False
+
+    try:
+        return await error_handler.execute_with_protection(
+            operation=verify_operation,
+            endpoint_key=endpoint_key,
+            context={"operation": "checksum_verification", "file": str(file_path), "checksum_url": checksum_url}
+        )
+    except Exception as e:
+        error_info = ErrorClassifier.classify_exception(e, {"checksum_url": checksum_url, "operation": "checksum_verification"})
+        error_statistics.record_error(error_info, endpoint_key)
+        logger.error(f"{log_prefix} Enhanced checksum verification failed: {error_info.category.value} - {error_info.message}")
+        return False
+
+async def verify_checksum_legacy(session: aiohttp.ClientSession, file_path: Path, checksum_url: str, log_prefix: str) -> bool:
+    """Legacy checksum verification (original implementation for fallback)."""
     try:
         # 1. Download checksum file content
         logger.debug(f"{log_prefix} Downloading checksum: {checksum_url}")
         async with session.get(checksum_url, timeout=15) as response:
             if response.status == 404:
                 logger.warning(f"{log_prefix} Checksum file not found: {checksum_url}. Cannot verify.")
-                return False # Treat as failure if checksum file is missing
+                return False
             response.raise_for_status()
             checksum_content = await response.text()
-            # Expected format: <sha256_hash>  <filename>
             expected_checksum = checksum_content.split()[0].lower()
 
         # 2. Calculate checksum of the downloaded file
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(65536), b""): # Read in larger blocks for hashing
+            for byte_block in iter(lambda: f.read(65536), b""):
                 sha256_hash.update(byte_block)
         calculated_checksum = sha256_hash.hexdigest().lower()
 
@@ -612,8 +745,22 @@ def write_final_report(missing_files: List[Dict]):
 
 # --- Main Application Logic ---
 
-async def main(symbols: List[str], start_date_arg: date):
+async def main(symbols: List[str], start_date_arg: date, end_date_arg: Optional[date] = None,
+              custom_data_types: Optional[List[str]] = None, custom_interval: str = "1m"):
     logger.info(f"Starting unified downloader for symbols: {symbols}, start date: {start_date_arg.isoformat()}")
+
+    # Apply custom configuration
+    data_types_to_use = custom_data_types if custom_data_types else ALL_DATA_TYPES
+    interval_to_use = custom_interval
+    daily_types_to_use = [dt for dt in data_types_to_use if dt != "fundingRate"]
+    monthly_types_to_use = [dt for dt in data_types_to_use if dt == "fundingRate"]
+
+    logger.info(f"Data types: {data_types_to_use}")
+    logger.info(f"Klines interval: {interval_to_use}")
+    if end_date_arg:
+        logger.info(f"End date: {end_date_arg.isoformat()}")
+    else:
+        logger.info(f"End date: today (will be determined later)")
 
     # 1. Load or Discover Earliest Dates
     availability_config = {}
@@ -634,10 +781,10 @@ async def main(symbols: List[str], start_date_arg: date):
     # Determine which combinations need discovery
     for symbol in symbols:
         if symbol not in availability_config: availability_config[symbol] = {}
-        for data_type in ALL_DATA_TYPES:
+        for data_type in data_types_to_use:
             if data_type not in availability_config[symbol]: availability_config[symbol][data_type] = {}
             if data_type in INTERVAL_TYPES:
-                interval = DEFAULT_KLINES_INTERVAL # Assuming default interval for now
+                interval = interval_to_use # Using custom or default interval
                 # Check if key exists and is not None/empty string
                 if interval not in availability_config[symbol][data_type] or not availability_config[symbol][data_type].get(interval):
                     combinations_to_discover.append((symbol, data_type, interval))
@@ -706,7 +853,12 @@ async def main(symbols: List[str], start_date_arg: date):
     logger.info("Starting verification and download phase...")
     all_tasks_info = [] # Store info about each task for reporting
     missing_files_final = []
-    today = date.today()
+    today = end_date_arg if end_date_arg else date.today()
+
+    if end_date_arg:
+        logger.info(f"Using custom end date: {end_date_arg}")
+    else:
+        logger.info(f"Using default end date (today): {today}")
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
     # Create a new session specifically for downloads, manage its lifecycle
     download_session = None
@@ -722,9 +874,9 @@ async def main(symbols: List[str], start_date_arg: date):
 
         # Generate all expected file tasks based on effective start dates
         for symbol in symbols:
-            for data_type in ALL_DATA_TYPES:
+            for data_type in data_types_to_use:
                 is_monthly = data_type == "fundingRate"
-                interval = DEFAULT_KLINES_INTERVAL if data_type in INTERVAL_TYPES else None
+                interval = interval_to_use if data_type in INTERVAL_TYPES else None
                 config_key = interval if interval else 'all'
 
                 # Determine effective start date from config or argument
@@ -829,28 +981,324 @@ async def main(symbols: List[str], start_date_arg: date):
     # 3. Final Report
     write_final_report(missing_files_final)
 
+    # 4. Temporal Gap Analysis (if enabled)
+    if ENABLE_TEMPORAL_GAP_ANALYSIS and GAP_ANALYSIS_AFTER_DOWNLOAD:
+        await run_temporal_gap_analysis(symbols, start_date_arg, today, data_types_to_use, interval_to_use, availability_config)
+
+    # 5. Error Statistics Summary
+    if ENABLE_ENHANCED_ERROR_HANDLING:
+        error_summary = error_statistics.get_error_summary()
+        if error_summary["total_errors"] > 0:
+            logger.warning(f"Session completed with {error_summary['total_errors']} total errors across {len(error_summary['endpoint_breakdown'])} endpoints")
+            # Log critical error categories
+            for category, count in error_summary["error_categories"].items():
+                if count > 0 and category in ['api_server_error', 'data_checksum_mismatch', 'network_timeout']:
+                    logger.warning(f"  {category}: {count} occurrences")
+        else:
+            logger.info("Session completed with no errors recorded")
+
     logger.info("Unified downloader process finished.")
 
 
+async def run_temporal_gap_analysis(symbols: List[str], start_date: date, end_date: date,
+                                   data_types: List[str], interval: str, availability_config: Dict) -> None:
+    """Run temporal gap analysis after download completion."""
+    logger.info("Starting temporal gap analysis...")
+
+    try:
+        # Prepare analysis parameters
+        # end_date is now passed as parameter
+
+        # Create interval mapping for data types that need it
+        intervals = {data_type: interval for data_type in INTERVAL_TYPES}
+
+        # Run gap analysis
+        analysis_results = analyze_temporal_gaps(
+            symbols=symbols,
+            data_types=data_types,
+            start_date=start_date,
+            end_date=end_date,
+            data_dir=EXTRACTED_DATA_DIR,
+            downloads_dir=DOWNLOADS_DIR,
+            intervals=intervals
+        )
+
+        if analysis_results:
+            # Create gap detector for report generation
+            gap_detector = TemporalGapDetector(EXTRACTED_DATA_DIR, DOWNLOADS_DIR)
+
+            # Generate comprehensive report
+            report_path = gap_detector.generate_comprehensive_report(analysis_results, REPORTS_DIR)
+
+            # Log summary statistics
+            total_combinations = len(analysis_results)
+            critical_combinations = len([r for r in analysis_results if r.completeness_percentage < 50])
+            healthy_combinations = len([r for r in analysis_results if r.completeness_percentage >= 95])
+
+            logger.info(f"Temporal gap analysis completed:")
+            logger.info(f"  - Analyzed: {total_combinations} symbol/data_type combinations")
+            logger.info(f"  - Healthy (≥95% complete): {healthy_combinations}")
+            logger.info(f"  - Critical (<50% complete): {critical_combinations}")
+            logger.info(f"  - Detailed report: {report_path}")
+
+            # Log critical findings
+            for result in analysis_results:
+                if result.completeness_percentage < 50:
+                    logger.warning(f"CRITICAL: {result.symbol} {result.data_type} {result.interval or ''} - {result.completeness_percentage:.1f}% complete")
+                elif result.completeness_percentage < 80:
+                    logger.warning(f"WARNING: {result.symbol} {result.data_type} {result.interval or ''} - {result.completeness_percentage:.1f}% complete")
+        else:
+            logger.info("No gap analysis results to report")
+
+    except Exception as e:
+        logger.error(f"Temporal gap analysis failed: {e}")
+        # Don't fail the entire process for gap analysis issues
+
+
 # --- Entry Point ---
+def create_enhanced_help():
+    """Create enhanced help documentation with detailed descriptions and examples."""
+
+    # Create data type help text
+    data_types_help = "Available data types:\n"
+    for dtype, desc in DATA_TYPE_DESCRIPTIONS.items():
+        data_types_help += f"  • {dtype:<18} - {desc}\n"
+
+    # Create intervals help text
+    intervals_help = f"Available intervals: {', '.join(ALL_INTERVALS)}"
+
+    # Create examples help text
+    examples_help = """
+USAGE EXAMPLES:
+
+  # Download 7 days of klines and trades data for BTCUSDT (5m interval)
+  python unified_downloader.py --symbols BTCUSDT --data-types "klines,trades" --interval 5m --start-date 2020-01-01 --end-date 2020-01-07
+
+  # Download all available data types for multiple symbols (1h interval)
+  python unified_downloader.py --symbols "BTCUSDT,ETHUSDT" --interval 1h --start-date 2021-01-01
+
+  # Download only order book depth data with verbose logging
+  python unified_downloader.py --data-types bookDepth --verbose --start-date 2023-01-01 --end-date 2023-01-31
+
+  # Download funding rate data (monthly) - no interval needed
+  python unified_downloader.py --data-types fundingRate --start-date 2022-01-01 --end-date 2022-12-31
+
+NOTES:
+  - Currently supports Binance USD-M Futures markets only
+  - Data is downloaded from data.binance.vision
+  - Files are saved to data/ directory with SHA256 verification
+  - Gap analysis reports are generated automatically
+  - Enhanced error handling with smart retry logic included
+"""
+
+    return data_types_help, intervals_help, examples_help
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Unified Binance Futures Data Downloader and Verifier.")
+    # Create enhanced help content
+    data_types_help, intervals_help, examples_help = create_enhanced_help()
+
+    parser = argparse.ArgumentParser(
+        description="Enhanced Binance Futures Data Downloader and Analyzer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=examples_help
+    )
+
     parser.add_argument(
         "--symbols",
         type=str,
         default=",".join(DEFAULT_SYMBOLS),
-        help=f"Comma-separated list of symbols (default: {','.join(DEFAULT_SYMBOLS)})"
+        help=f"Comma-separated list of trading symbols to download.\n"
+             f"Examples: BTCUSDT, \"BTCUSDT,ETHUSDT,ADAUSDT\"\n"
+             f"Default: {','.join(DEFAULT_SYMBOLS)}"
     )
+
     parser.add_argument(
         "--start-date",
         type=str,
         default=DEFAULT_START_DATE_STR,
-        help=f"Start date for verification/download (YYYY-MM-DD format, default: {DEFAULT_START_DATE_STR})"
+        help=f"Start date for data download in YYYY-MM-DD format.\n"
+             f"Historical data is available from different dates per symbol.\n"
+             f"Use discovery feature to find earliest available date.\n"
+             f"Default: {DEFAULT_START_DATE_STR}"
     )
+
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date for data download in YYYY-MM-DD format.\n"
+             "If not specified, downloads until today.\n"
+             "Example: 2023-12-31"
+    )
+
+    parser.add_argument(
+        "--data-types",
+        type=str,
+        default=None,
+        help=f"Comma-separated list of data types to download.\n"
+             f"If not specified, downloads all available types.\n"
+             f"Examples: \"klines,trades\", \"bookDepth\", \"klines,aggTrades,metrics\"\n\n"
+             f"{data_types_help}"
+    )
+
+    parser.add_argument(
+        "--interval",
+        type=str,
+        default="1m",
+        help=f"Time interval for klines-type data (klines, indexPriceKlines, etc.).\n"
+             f"This setting affects all interval-based data types.\n"
+             f"Does not affect: trades, aggTrades, bookDepth, metrics, fundingRate.\n"
+             f"{intervals_help}\n"
+             f"Default: 1m"
+    )
+
     parser.add_argument(
         "--verbose", "-v",
         action="store_true",
-        help="Enable detailed debug logging"
+        help="Enable verbose debug logging with detailed progress information.\n"
+             "Shows detailed download progress, error analysis, and system operations.\n"
+             "Helpful for troubleshooting and monitoring large downloads."
+    )
+
+def suggest_similar_items(invalid_item, valid_items, max_suggestions=3):
+    """Suggest similar valid items using simple string similarity."""
+    from difflib import get_close_matches
+    suggestions = get_close_matches(invalid_item, valid_items, n=max_suggestions, cutoff=0.4)
+    return suggestions
+
+def validate_data_types(data_types_list):
+    """Validate data types and provide intelligent error messages."""
+    if not data_types_list:
+        return None
+
+    valid_types = []
+    invalid_types = []
+
+    for dt in data_types_list:
+        if dt in ALL_DATA_TYPES:
+            valid_types.append(dt)
+        else:
+            invalid_types.append(dt)
+
+    if invalid_types:
+        error_msg = f"Invalid data type(s): {', '.join(invalid_types)}\n"
+        error_msg += f"Valid data types are: {', '.join(ALL_DATA_TYPES)}\n"
+
+        # Provide suggestions for each invalid type
+        for invalid_type in invalid_types:
+            suggestions = suggest_similar_items(invalid_type, ALL_DATA_TYPES)
+            if suggestions:
+                error_msg += f"Did you mean '{suggestions[0]}' instead of '{invalid_type}'?\n"
+
+        # Add help reference
+        error_msg += "Use --help to see detailed descriptions of all data types."
+        logger.error(error_msg)
+        sys.exit(1)
+
+    return valid_types
+
+def validate_interval(interval):
+    """Validate interval and provide intelligent error messages."""
+    if interval in ALL_INTERVALS:
+        return interval
+
+    error_msg = f"Invalid interval: '{interval}'\n"
+    error_msg += f"Valid intervals are: {', '.join(ALL_INTERVALS)}\n"
+
+    # Provide suggestions
+    suggestions = suggest_similar_items(interval, ALL_INTERVALS)
+    if suggestions:
+        error_msg += f"Did you mean '{suggestions[0]}' instead of '{interval}'?\n"
+
+    # Add context about interval usage
+    error_msg += "Note: Intervals only affect klines-type data (klines, indexPriceKlines, markPriceKlines, premiumIndexKlines)."
+    logger.error(error_msg)
+    sys.exit(1)
+
+def validate_date_range(start_date_obj, end_date_obj):
+    """Validate date range logic."""
+    if end_date_obj and start_date_obj >= end_date_obj:
+        logger.error(f"Start date ({start_date_obj}) must be before end date ({end_date_obj}).")
+        sys.exit(1)
+
+    # Check if dates are too far in the future
+    from datetime import date
+    today = date.today()
+    if start_date_obj > today:
+        logger.error(f"Start date ({start_date_obj}) cannot be in the future. Today is {today}.")
+        sys.exit(1)
+
+    if end_date_obj and end_date_obj > today:
+        logger.warning(f"End date ({end_date_obj}) is in the future. Using today ({today}) instead.")
+        end_date_obj = today
+
+    return start_date_obj, end_date_obj
+
+if __name__ == "__main__":
+    # Create enhanced help content
+    data_types_help, intervals_help, examples_help = create_enhanced_help()
+
+    parser = argparse.ArgumentParser(
+        description="Enhanced Binance Futures Data Downloader and Analyzer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=examples_help
+    )
+
+    parser.add_argument(
+        "--symbols",
+        type=str,
+        default=",".join(DEFAULT_SYMBOLS),
+        help=f"Comma-separated list of trading symbols to download.\n"
+             f"Examples: BTCUSDT, \"BTCUSDT,ETHUSDT,ADAUSDT\"\n"
+             f"Default: {','.join(DEFAULT_SYMBOLS)}"
+    )
+
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=DEFAULT_START_DATE_STR,
+        help=f"Start date for data download in YYYY-MM-DD format.\n"
+             f"Historical data is available from different dates per symbol.\n"
+             f"Use discovery feature to find earliest available date.\n"
+             f"Default: {DEFAULT_START_DATE_STR}"
+    )
+
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date for data download in YYYY-MM-DD format.\n"
+             "If not specified, downloads until today.\n"
+             "Example: 2023-12-31"
+    )
+
+    parser.add_argument(
+        "--data-types",
+        type=str,
+        default=None,
+        help=f"Comma-separated list of data types to download.\n"
+             f"If not specified, downloads all available types.\n"
+             f"Examples: \"klines,trades\", \"bookDepth\", \"klines,aggTrades,metrics\"\n\n"
+             f"{data_types_help}"
+    )
+
+    parser.add_argument(
+        "--interval",
+        type=str,
+        default="1m",
+        help=f"Time interval for klines-type data (klines, indexPriceKlines, etc.).\n"
+             f"This setting affects all interval-based data types.\n"
+             f"Does not affect: trades, aggTrades, bookDepth, metrics, fundingRate.\n"
+             f"{intervals_help}\n"
+             f"Default: 1m"
+    )
+
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose debug logging with detailed progress information.\n"
+             "Shows detailed download progress, error analysis, and system operations.\n"
+             "Helpful for troubleshooting and monitoring large downloads."
     )
 
     args = parser.parse_args()
@@ -862,22 +1310,48 @@ if __name__ == "__main__":
             handler.setLevel(logging.DEBUG)
         logger.debug("Verbose logging enabled.")
 
-    # Parse symbols
+    # Parse and validate symbols
     symbols_list = [s.strip().upper() for s in args.symbols.split(',') if s.strip()]
     if not symbols_list:
-        logger.error("No valid symbols provided.")
+        logger.error("No valid symbols provided. Please provide comma-separated trading symbols like: BTCUSDT,ETHUSDT")
         sys.exit(1)
 
-    # Parse start date
+    # Parse and validate dates
     try:
         start_date_obj = datetime.strptime(args.start_date, "%Y-%m-%d").date()
     except ValueError:
-        logger.error(f"Invalid start-date format: {args.start_date}. Please use YYYY-MM-DD.")
+        logger.error(f"Invalid start-date format: '{args.start_date}'. Please use YYYY-MM-DD format (e.g., 2023-01-15).")
         sys.exit(1)
+
+    end_date_obj = None
+    if args.end_date:
+        try:
+            end_date_obj = datetime.strptime(args.end_date, "%Y-%m-%d").date()
+        except ValueError:
+            logger.error(f"Invalid end-date format: '{args.end_date}'. Please use YYYY-MM-DD format (e.g., 2023-12-31).")
+            sys.exit(1)
+
+    # Validate date range
+    start_date_obj, end_date_obj = validate_date_range(start_date_obj, end_date_obj)
+
+    # Parse and validate data types
+    data_types_list = None
+    if args.data_types:
+        raw_data_types = [dt.strip() for dt in args.data_types.split(',') if dt.strip()]
+        data_types_list = validate_data_types(raw_data_types)
+        logger.info(f"Using custom data types: {data_types_list}")
+
+    # Validate interval
+    validated_interval = validate_interval(args.interval)
+    if args.interval != "1m":
+        logger.info(f"Using custom interval: {validated_interval} (will override default 1m)")
+
+    if data_types_list:
+        logger.info(f"Using custom data types: {data_types_list} (will override defaults)")
 
     # Run the main async function
     try:
-        asyncio.run(main(symbols_list, start_date_obj))
+        asyncio.run(main(symbols_list, start_date_obj, end_date_obj, data_types_list, validated_interval))
     except KeyboardInterrupt:
         logger.info("Process interrupted by user.")
         sys.exit(0)

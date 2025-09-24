@@ -7,16 +7,22 @@ This project provides a unified, intelligent tool to discover, download, verify,
 - **🔍 Smart Discovery**: Uses binary search algorithm to efficiently find earliest available data dates
 - **⚡ Asynchronous Processing**: High-performance concurrent downloads using `asyncio` and `aiohttp`
 - **🔐 Data Integrity**: SHA256 checksum verification for all downloaded files
-- **🔄 Robust Retry Logic**: Exponential backoff for network failures and configurable retry attempts  
-- **📊 Comprehensive Reporting**: Detailed logs and CSV reports of missing/invalid files
+- **🔄 Enhanced Error Handling**: Smart retry logic with circuit breaker pattern and exponential backoff
+- **✅ Intelligent Validation**: Input validation with smart suggestions for typos and common mistakes
+- **📊 Comprehensive Reporting**: Detailed logs, CSV reports, and temporal gap analysis
 - **💾 Intelligent Caching**: Saves discovery results to avoid redundant API calls
+- **📖 Enhanced Help System**: Detailed documentation with usage examples and data type descriptions
+- **🧪 Edge Case Testing**: Comprehensive test suite with 50+ edge cases and safety timeouts
 
 ## Project Structure
 
--   `unified_downloader.py` - Main script with integrated discovery, download, verification, and reporting
+-   `unified_downloader.py` - Main script with enhanced validation, help system, and comprehensive data support
 -   `binance_downloader.py` - Legacy downloader (superseded by unified version)
 -   `discover_data_ranges.py` - Standalone discovery utility (functionality integrated into unified script)
 -   `data_availability.json` - Cached discovery results for earliest available dates per symbol/data type
+-   `run_edge_case_tests.sh` - Comprehensive edge case test suite (50+ tests)
+-   `quick_edge_test.sh` - Quick testing utility for specific categories
+-   `EDGE_CASE_TESTING.md` - Complete testing documentation and guidelines
 -   `requirements.txt` - Python dependencies
 
 ## Directory Structure
@@ -30,7 +36,7 @@ This project provides a unified, intelligent tool to discover, download, verify,
 
 - **Daily Data**: klines, trades, aggTrades, bookDepth, metrics, indexPriceKlines, markPriceKlines, premiumIndexKlines
 - **Monthly Data**: fundingRate
-- **Configurable Intervals**: Default 1-minute klines (configurable in script constants)
+- **All Intervals**: 1s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1mo
 
 ## Technical Architecture
 
@@ -55,31 +61,37 @@ This project provides a unified, intelligent tool to discover, download, verify,
 
 ## How to Use
 
-Run the script from your terminal. You can specify symbols and a start date.
+### Enhanced Help System
+View comprehensive help with detailed descriptions, examples, and data type documentation:
+```bash
+python unified_downloader.py --help
+```
 
-**Basic Usage (Defaults: BTCUSDT, BTCUSDC starting from 2020-01-01):**
+### Basic Usage Examples
+
+**Default Download (BTCUSDT, BTCUSDC from 2020-01-01):**
 ```bash
 python unified_downloader.py
 ```
 
-**Specify Symbols:**
+**Specify Data Types and Intervals:**
 ```bash
-python unified_downloader.py --symbols BTCUSDT,ETHUSDT,BNBBTC
+python unified_downloader.py --data-types "klines,trades" --interval 5m --start-date 2020-01-01 --end-date 2020-01-07
 ```
 
-**Specify Start Date (YYYY-MM-DD):**
+**Download Order Book Data with Custom Date Range:**
 ```bash
-python unified_downloader.py --start-date 2022-01-01
+python unified_downloader.py --data-types bookDepth --start-date 2023-01-01 --end-date 2023-01-31 --verbose
 ```
 
-**Specify Symbols and Start Date:**
+**Multiple Symbols with All Data Types:**
 ```bash
-python unified_downloader.py --symbols ETHUSDT --start-date 2021-06-15
+python unified_downloader.py --symbols "BTCUSDT,ETHUSDT,ADAUSDT" --interval 1h --start-date 2021-01-01
 ```
 
-**Enable Verbose Logging:**
+**Monthly Funding Rate Data:**
 ```bash
-python unified_downloader.py --verbose
+python unified_downloader.py --data-types fundingRate --start-date 2022-01-01 --end-date 2022-12-31
 ```
 
 The script will:
@@ -90,6 +102,48 @@ The script will:
 5.  Extract the `.zip` file and verify the resulting `.csv`.
 6.  Log progress and errors.
 7.  Generate a report in the `reports/` directory if any files are missing or invalid after processing.
+
+## Input Validation & Smart Suggestions
+
+The system provides intelligent validation with helpful error messages:
+
+**Smart Typo Detection:**
+```bash
+# Input: --data-types "kline,trade"
+# Output: Did you mean 'klines' instead of 'kline'?
+#         Did you mean 'trades' instead of 'trade'?
+```
+
+**Interval Format Assistance:**
+```bash
+# Input: --interval "5min"
+# Output: Did you mean '5m' instead of '5min'?
+```
+
+**Date Range Validation:**
+```bash
+# Prevents future dates, invalid formats, and impossible dates
+# Automatically suggests corrections for common mistakes
+```
+
+## Edge Case Testing
+
+Comprehensive test suite for system robustness:
+
+**Run Complete Test Suite (50+ test cases):**
+```bash
+./run_edge_case_tests.sh
+```
+
+**Quick Category Tests:**
+```bash
+./quick_edge_test.sh validation   # Test input validation
+./quick_edge_test.sh intervals    # Test interval formats
+./quick_edge_test.sh dates        # Test date validation
+./quick_edge_test.sh functional   # Test functional edge cases
+```
+
+The test suite includes timeout protection (60s per test) and comprehensive reporting with automatic result classification.
 
 ## Configuration & Constants
 
