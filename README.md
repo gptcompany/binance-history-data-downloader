@@ -1,10 +1,10 @@
 # Binance Futures Data Downloader & Verifier
 
-![CI](https://github.com/gptprojectmanager/binance-history-data-downloader/actions/workflows/ci.yml/badge.svg?branch=main)
+![CI](https://github.com/gptcompany/binance-history-data-downloader/actions/workflows/ci.yml/badge.svg?branch=main)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square&logo=python)
-![License](https://img.shields.io/github/license/gptprojectmanager/binance-history-data-downloader?style=flat-square)
-![Last Commit](https://img.shields.io/github/last-commit/gptprojectmanager/binance-history-data-downloader?style=flat-square)
-![Issues](https://img.shields.io/github/issues/gptprojectmanager/binance-history-data-downloader?style=flat-square)
+![License](https://img.shields.io/github/license/gptcompany/binance-history-data-downloader?style=flat-square)
+![Last Commit](https://img.shields.io/github/last-commit/gptcompany/binance-history-data-downloader?style=flat-square)
+![Issues](https://img.shields.io/github/issues/gptcompany/binance-history-data-downloader?style=flat-square)
 
 This project provides a unified, intelligent tool to discover, download, verify, and extract historical market data for Binance USDⓈ-M Futures. It supports various data types including klines, trades, funding rates, and more.
 
