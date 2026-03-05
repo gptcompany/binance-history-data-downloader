@@ -98,12 +98,17 @@ class MarketCalendar:
     @staticmethod
     def get_expected_gap_type(check_date: date, data_type: str) -> Optional[GapType]:
         """Determine if a gap on this date is expected"""
+        # Binance launch date approx July 2017
+        binance_launch = date(2017, 7, 1)
+        if check_date < binance_launch:
+            return GapType.API_LIMITATION
+
+        if check_date > date.today():
+            return GapType.API_LIMITATION
+
         if MarketCalendar.is_weekend(check_date):
-            # Most crypto data should be available on weekends
-            # but some aggregated metrics might have gaps
-            if data_type in ['metrics', 'fundingRate']:
-                return GapType.WEEKEND_GAP
-            return None  # Crypto markets operate on weekends
+            # Crypto markets operate 24/7
+            return None
 
         if MarketCalendar.is_known_holiday(check_date):
             return GapType.HOLIDAY_GAP
@@ -127,15 +132,35 @@ class FilePatternAnalyzer:
         if data_type == "fundingRate":
             # Monthly files: symbol-datatype-YYYY-MM.csv
             search_pattern = f"{symbol}-{data_type}-*.csv"
-            search_dir = self.data_dir / "monthly" / data_type / symbol
+            # Check both possible locations: data/symbol/data_type and data/monthly/data_type/symbol
+            possible_dirs = [
+                self.data_dir / symbol / data_type,
+                self.data_dir / "monthly" / data_type / symbol
+            ]
         elif interval:
             # Daily files with interval: symbol-interval-YYYY-MM-DD.csv
             search_pattern = f"{symbol}-{interval}-*.csv"
-            search_dir = self.data_dir / symbol / data_type / interval
+            possible_dirs = [
+                self.data_dir / symbol / data_type / interval,
+                self.data_dir / "daily" / data_type / symbol / interval
+            ]
         else:
             # Daily files without interval: symbol-datatype-YYYY-MM-DD.csv
             search_pattern = f"{symbol}-{data_type}-*.csv"
-            search_dir = self.data_dir / symbol / data_type
+            possible_dirs = [
+                self.data_dir / symbol / data_type,
+                self.data_dir / "daily" / data_type / symbol
+            ]
+
+        search_dir = None
+        for d in possible_dirs:
+            if d.exists():
+                search_dir = d
+                break
+
+        if not search_dir:
+            self.logger.debug(f"Search directory does not exist: {possible_dirs}")
+            return existing_files
 
         if not search_dir.exists():
             self.logger.debug(f"Search directory does not exist: {search_dir}")
@@ -340,18 +365,18 @@ class TemporalGapDetector:
     def _classify_gap_type(self, missing_date_group: List[date], data_type: str) -> GapType:
         """Classify the type of gap based on dates and context"""
         # Check if all dates in group have expected gap type
-        weekend_count = sum(1 for d in missing_date_group if MarketCalendar.is_weekend(d))
-        holiday_count = sum(1 for d in missing_date_group if MarketCalendar.is_known_holiday(d))
-
+        gap_types = [MarketCalendar.get_expected_gap_type(d, data_type) for d in missing_date_group]
+        
+        # Count occurrences of each gap type
+        from collections import Counter
+        counts = Counter(t for t in gap_types if t is not None)
+        
         total_dates = len(missing_date_group)
-
-        # If majority are weekends, classify as weekend gap
-        if weekend_count / total_dates > 0.5:
-            return GapType.WEEKEND_GAP
-
-        # If majority are holidays, classify as holiday gap
-        if holiday_count / total_dates > 0.5:
-            return GapType.HOLIDAY_GAP
+        
+        # If any specific expected gap type covers majority, use it
+        for g_type, count in counts.items():
+            if count / total_dates > 0.5:
+                return g_type
 
         # For funding rate data, some gaps might be due to API limitations
         if data_type == "fundingRate" and total_dates <= 2:

@@ -20,6 +20,14 @@ from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 from tqdm import tqdm # Optional progress bar
 
+# Disable tqdm if running in n8n (prevents BrokenPipeError)
+if os.getenv('N8N_NO_PROGRESS', '').lower() in ('1', 'true', 'yes'):
+    tqdm.__init__ = lambda self, *args, **kwargs: None
+    tqdm.__enter__ = lambda self: self
+    tqdm.__exit__ = lambda self, *args: None
+    tqdm.update = lambda self, n=1: None
+    tqdm.close = lambda self: None
+
 # Import enhanced error handling and gap detection modules
 from error_handling import (
     EnhancedErrorHandler, ErrorClassifier, ErrorCategory,
@@ -1012,16 +1020,54 @@ async def run_temporal_gap_analysis(symbols: List[str], start_date: date, end_da
         # Create interval mapping for data types that need it
         intervals = {data_type: interval for data_type in INTERVAL_TYPES}
 
-        # Run gap analysis
-        analysis_results = analyze_temporal_gaps(
-            symbols=symbols,
-            data_types=data_types,
-            start_date=start_date,
-            end_date=end_date,
-            data_dir=EXTRACTED_DATA_DIR,
-            downloads_dir=DOWNLOADS_DIR,
-            intervals=intervals
-        )
+        # Run gap analysis for each symbol separately to use correct start dates
+        all_results = []
+
+        for symbol in symbols:
+            # Get symbol-specific availability data
+            symbol_availability = availability_config.get(symbol, {})
+
+            for data_type in data_types:
+                # Get the actual start date for this symbol/data_type combination
+                data_type_availability = symbol_availability.get(data_type, {})
+
+                if data_type in INTERVAL_TYPES and interval:
+                    # For interval types, get interval-specific start date
+                    actual_start_date_str = data_type_availability.get(interval)
+                else:
+                    # For non-interval types, get general start date
+                    actual_start_date_str = data_type_availability.get("all")
+
+                if actual_start_date_str:
+                    # Parse the start date from availability config
+                    try:
+                        if data_type == "fundingRate":
+                            # Monthly format: "2020-01"
+                            year, month = actual_start_date_str.split('-')
+                            actual_start_date = date(int(year), int(month), 1)
+                        else:
+                            # Daily format: "2019-11-27"
+                            actual_start_date = datetime.strptime(actual_start_date_str, '%Y-%m-%d').date()
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Invalid date format in availability config for {symbol} {data_type}: {actual_start_date_str}")
+                        actual_start_date = start_date  # Fallback to user-provided date
+                else:
+                    logger.info(f"No availability data for {symbol} {data_type}, using user-provided start date")
+                    actual_start_date = start_date  # Fallback to user-provided date
+
+                # Run gap analysis for this specific symbol/data_type with correct start date
+                results = analyze_temporal_gaps(
+                    symbols=[symbol],
+                    data_types=[data_type],
+                    start_date=actual_start_date,
+                    end_date=end_date,
+                    data_dir=EXTRACTED_DATA_DIR,
+                    downloads_dir=DOWNLOADS_DIR,
+                    intervals=intervals
+                )
+                all_results.extend(results)
+
+        analysis_results = all_results
 
         if analysis_results:
             # Create gap detector for report generation
