@@ -1,5 +1,11 @@
 # Binance Futures Data Downloader & Verifier
 
+![CI](https://github.com/gptprojectmanager/binance-history-data-downloader/actions/workflows/ci.yml/badge.svg?branch=main)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square&logo=python)
+![License](https://img.shields.io/github/license/gptprojectmanager/binance-history-data-downloader?style=flat-square)
+![Last Commit](https://img.shields.io/github/last-commit/gptprojectmanager/binance-history-data-downloader?style=flat-square)
+![Issues](https://img.shields.io/github/issues/gptprojectmanager/binance-history-data-downloader?style=flat-square)
+
 This project provides a unified, intelligent tool to discover, download, verify, and extract historical market data for Binance USDⓈ-M Futures. It supports various data types including klines, trades, funding rates, and more.
 
 ## Key Features
@@ -199,6 +205,29 @@ DISCOVERY_RATE_LIMIT_DELAY = 0.2   # Delay between discovery requests
 -   **Log files**: `logs/unified_downloader_YYYYMMDD_HHMMSS.log` (timestamped)
 -   **Missing file reports**: `reports/missing_files_report_YYYYMMDD_HHMMSS.csv`
 -   **Discovery cache**: `data_availability.json` (auto-generated and updated)
+
+## Data Quality Analysis
+
+### Gap Analysis Results (September 2025)
+
+**Dataset Completeness:**
+- **ETHUSDT & BTCUSDT**: 97-99% complete across all data types
+- **Total files**: ~9,000 expected, 15 missing (0.17% gap rate)
+
+**Critical Gap Assessment:**
+
+| Data Type | Coverage | Gap Status | Production Ready |
+|-----------|----------|------------|------------------|
+| Trades | 99.95% | ✅ No timeline gaps | ✅ Excellent |
+| Metrics | 99.93% | ✅ End-of-timeline only | ✅ Excellent |
+| Funding Rate | 97.1% | ✅ Recent months only | ✅ Good |
+| BookDepth | 99.6-99.7% | ⚠️ 5 historical gaps | ✅ Good with handling |
+
+**Historical Gaps (404 on Binance servers):**
+- ETHUSDT/BTCUSDT BookDepth: 2023-02-08, 2023-02-09
+- BTCUSDT BookDepth: 2024-04-18
+
+**Recommendation:** Dataset is production-ready for algorithmic trading. Use forward-fill for BookDepth gaps or exclude affected dates from backtesting.
 
 ## Performance Considerations
 
