@@ -196,6 +196,17 @@ DISCOVERY_RETRY_COUNT = 3          # API request retries for discovery
 DISCOVERY_RATE_LIMIT_DELAY = 0.2   # Delay between discovery requests
 ```
 
+
+## CI/CD
+
+This repository uses **GitHub Actions** for continuous integration and automated quality assurance.
+
+- **Automated Testing**: Comprehensive test suite runs on every push and pull request to the `main` branch.
+- **Platform Coverage**: Tests are executed on both **Ubuntu** and **macOS** environments.
+- **Code Coverage**: Detailed coverage reports are generated using `pytest-cov`.
+- **Secure Reporting**: Coverage data is uploaded to **Codecov** using secure **OIDC** authentication, eliminating the need for repository tokens.
+- **Dynamic Badges**: The README coverage badge is automatically updated upon successful CI completion.
+
 ## Security Note
 
 ⚠️ **SSL Certificate Validation**: The script uses permissive SSL settings (`ssl.CERT_NONE`) to handle certificate issues with Binance's API. This is a potential security risk in untrusted environments.
