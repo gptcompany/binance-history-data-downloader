@@ -1,0 +1,16 @@
+services:
+  binance-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: binance-data-downloader:latest
+    container_name: binance-sync
+    working_dir: /app
+    environment:
+      TZ: ${TZ:-Europe/Lisbon}
+      START_DATE: ${START_DATE:-2021-12-01}
+      SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT}
+    volumes:
+      - ./data:/app/data
+    command: ["bash", "scripts/run-sync.sh"]
+    restart: "no"

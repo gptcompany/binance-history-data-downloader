@@ -3,15 +3,17 @@
 # Runs 7 sequential download calls (idempotent, skips existing files)
 set -euo pipefail
 
-cd /media/sam/3TB-WDC/binance-history-data-downloader
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
 
 # Disable tqdm progress bars (no terminal in systemd)
 export N8N_NO_PROGRESS=1
 
-START_DATE="2021-12-01"
-END_DATE=$(date -d "yesterday" +%Y-%m-%d)
-PYTHON=python3
-SYMBOLS="BTCUSDT,ETHUSDT"
+PYTHON="${PYTHON:-python3}"
+START_DATE="${START_DATE:-2021-12-01}"
+END_DATE="${END_DATE:-$(date -d "yesterday" +%Y-%m-%d)}"
+SYMBOLS="${SYMBOLS:-BTCUSDT,ETHUSDT}"
 
 echo "[$(date -Iseconds)] Binance sync: ${START_DATE} → ${END_DATE}"
 
