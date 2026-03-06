@@ -4,10 +4,14 @@ Simple test downloader using requests instead of aiohttp
 to avoid SSL certificate issues
 """
 import os
+import pytest
 import requests
 import zipfile
 from pathlib import Path
 from datetime import datetime, timedelta
+
+if os.environ.get("ALLOW_NETWORK_TESTS") != "1":
+    pytest.skip("Network tests disabled (set ALLOW_NETWORK_TESTS=1 to enable).", allow_module_level=True)
 
 def download_with_requests(url, destination_path):
     """Download file using requests with SSL verification disabled"""

@@ -7,10 +7,15 @@ of January 2020, verifying all enhanced features work in practice.
 """
 
 import asyncio
+import os
+import pytest
 import logging
 import sys
 from pathlib import Path
 from datetime import date, datetime
+
+if os.environ.get("ALLOW_NETWORK_TESTS") != "1":
+    pytest.skip("Network tests disabled (set ALLOW_NETWORK_TESTS=1 to enable).", allow_module_level=True)
 
 # Temporarily modify the configuration for testing
 import unified_downloader

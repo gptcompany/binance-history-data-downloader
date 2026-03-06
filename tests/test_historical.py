@@ -1,4 +1,9 @@
+import os
+import pytest
 import requests  
+
+if os.environ.get("ALLOW_NETWORK_TESTS") != "1":
+    pytest.skip("Network tests disabled (set ALLOW_NETWORK_TESTS=1 to enable).", allow_module_level=True)
 print('Testing Binance historical data access...')  
   
 # Test data.binance.vision  
