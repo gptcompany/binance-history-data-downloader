@@ -12,5 +12,5 @@ services:
       SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT}
     volumes:
       - ${BINANCE_DATA_ROOT:-/media/sam/3TB-WDC/binance-history-data-downloader/data}:/app/data
-    command: ["bash", "scripts/run-sync.sh"]
+    command: ["bash", "scripts/run-sync-with-notify.sh"]
     restart: "no"

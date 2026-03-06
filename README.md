@@ -109,6 +109,11 @@ Data persistence is controlled by `BINANCE_DATA_ROOT` (volume mount in `docker-c
 On this host, set `BINANCE_REPO_ROOT` and `BINANCE_DATA_ROOT` in `/etc/downloader-sync.env` and use the
 `deploy/systemd/binance-sync-docker.service` unit, which reads those variables via `EnvironmentFile=`.
 
+### Docker-First Execution (CI)
+These services are intended to run **inside Docker** (CI actions launch Docker services, not systemd).
+The compose service runs `scripts/run-sync-with-notify.sh`, which captures the original run summary and
+sends it to Discord when `DISCORD_WEBHOOK_HISTORY` is set.
+
 ### Notifications
 Healthchecks pings are emitted by `cron-wrapper.sh` (monitoring-stack).
 Discord delivery is configured via environment (no hardcoded webhook). On this host, the webhook is read

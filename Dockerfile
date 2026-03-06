@@ -14,7 +14,7 @@ COPY src /app/src
 COPY config /app/config
 COPY scripts /app/scripts
 
-RUN chmod +x /app/scripts/run-sync.sh && \
+RUN chmod +x /app/scripts/run-sync.sh /app/scripts/run-sync-with-notify.sh && \
     mkdir -p /app/data
 
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
