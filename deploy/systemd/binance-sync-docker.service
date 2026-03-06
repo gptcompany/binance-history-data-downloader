@@ -14,7 +14,7 @@ Environment=COMPOSE_PROJECT_NAME=binance-sync
 Environment=QUESTDB_HOST=localhost
 Environment=QUESTDB_PORT=9009
 
-ExecStart=/media/sam/1TB/monitoring-stack/scripts/cron-wrapper.sh binance-sync /usr/bin/docker compose --env-file /etc/downloader-sync.env --project-directory ${BINANCE_REPO_ROOT} -f ${BINANCE_REPO_ROOT}/docker-compose.yml run --rm binance-sync
+ExecStart=/home/sam/.local/bin/dotenvx run -f /media/sam/1TB/.env -- /media/sam/1TB/monitoring-stack/scripts/cron-wrapper.sh binance-sync /usr/bin/docker compose --env-file /etc/downloader-sync.env --project-directory ${BINANCE_REPO_ROOT} -f ${BINANCE_REPO_ROOT}/docker-compose.yml run --rm binance-sync
 
 TimeoutStartSec=7200
 Restart=no
