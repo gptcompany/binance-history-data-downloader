@@ -8,13 +8,13 @@ Requires=docker.service
 Type=oneshot
 User=sam
 Group=sam
-WorkingDirectory=/media/sam/3TB-WDC/binance-history-data-downloader
+EnvironmentFile=/etc/downloader-sync.env
 
 Environment=COMPOSE_PROJECT_NAME=binance-sync
 Environment=QUESTDB_HOST=localhost
 Environment=QUESTDB_PORT=9009
 
-ExecStart=/media/sam/1TB/monitoring-stack/scripts/cron-wrapper.sh binance-sync /usr/bin/docker compose -f /media/sam/3TB-WDC/binance-history-data-downloader/docker-compose.yml run --rm binance-sync
+ExecStart=/media/sam/1TB/monitoring-stack/scripts/cron-wrapper.sh binance-sync /usr/bin/docker compose --env-file /etc/downloader-sync.env --project-directory ${BINANCE_REPO_ROOT} -f ${BINANCE_REPO_ROOT}/docker-compose.yml run --rm binance-sync
 
 TimeoutStartSec=7200
 Restart=no

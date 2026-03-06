@@ -93,6 +93,29 @@ The following directories are automatically created during execution and exclude
     ```
 3.  **Run the Downloader:** Execute the `unified_downloader.py` script. See "How to Use" for options.
 
+## Docker (Production)
+```bash
+# Optional: customize runtime parameters
+cp .env.example .env
+
+# Build image
+docker compose build binance-sync
+
+# Run one sync job
+docker compose run --rm binance-sync
+```
+
+Data persistence is controlled by `BINANCE_DATA_ROOT` (volume mount in `docker-compose.yml`).
+On this host, set `BINANCE_REPO_ROOT` and `BINANCE_DATA_ROOT` in `/etc/downloader-sync.env` and use the
+`deploy/systemd/binance-sync-docker.service` unit, which reads those variables via `EnvironmentFile=`.
+
+### Notifications
+Healthchecks pings are emitted by `cron-wrapper.sh` (monitoring-stack).
+Discord delivery is configured on the Healthchecks server. To (re)configure the webhook on this host, run:
+```bash
+dotenvx run -f /media/sam/1TB/.env -- /media/sam/1TB/monitoring-stack/scripts/configure-healthchecks-discord.sh
+```
+
 ## How to Use
 
 ### Enhanced Help System

@@ -11,6 +11,6 @@ services:
       START_DATE: ${START_DATE:-2021-12-01}
       SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT}
     volumes:
-      - ./data:/app/data
+      - ${BINANCE_DATA_ROOT:-/media/sam/3TB-WDC/binance-history-data-downloader/data}:/app/data
     command: ["bash", "scripts/run-sync.sh"]
     restart: "no"
