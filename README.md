@@ -230,13 +230,30 @@ DISCOVERY_RATE_LIMIT_DELAY = 0.2   # Delay between discovery requests
 
 ## CI/CD
 
-This repository uses **GitHub Actions** for continuous integration and automated quality assurance.
+This repository uses **GitHub Actions** for continuous integration and automated deployment.
 
-- **Automated Testing**: Comprehensive test suite runs on every push and pull request to the `main` branch.
-- **Platform Coverage**: Tests are executed on both **Ubuntu** and **macOS** environments.
-- **Code Coverage**: Detailed coverage reports are generated using `pytest-cov`.
-- **Secure Reporting**: Coverage data is uploaded to **Codecov** using secure **OIDC** authentication, eliminating the need for repository tokens.
-- **Dynamic Badges**: The README coverage badge is automatically updated upon successful CI completion.
+### Testing
+- **Automated Testing**: Comprehensive test suite runs on every push and pull request to `main`.
+- **Platform Coverage**: Tests on Ubuntu and macOS.
+- **Code Coverage**: Reports via `pytest-cov`, uploaded to Codecov (OIDC auth).
+
+### Auto-Deploy Pipeline
+On push to `main` (when `Dockerfile`, `docker-compose.yml`, `pyproject.toml`, `uv.lock`, `src/**`, `scripts/**` change):
+
+1. **Trigger**: `trigger-progressive-deploy.yml` dispatches `binance-downloader-build` to `progressive-deploy`
+2. **Build**: Progressive-deploy builds Docker image and pushes to `ghcr.io/gptcompany/binance-downloader`
+3. **GitOps**: Image tag updated in `gitops/apps/binance-downloader/base/kustomization.yaml`
+4. **Promotion**: Kargo promotes through dev → staging → prod
+
+**Required secret**: `PROGRESSIVE_DEPLOY_PAT` (GitHub classic PAT with `repo` scope)
+
+### Local Execution
+The service runs nightly via systemd timer (`binance-sync-docker.timer` at 03:00):
+```bash
+docker compose run --rm binance-sync
+```
+
+The systemd service uses `dotenvx` to load secrets from `/media/sam/1TB/.env` (SSOT) and `cron-wrapper.sh` from `monitoring-stack` for notifications. Runtime env vars are sourced from `/etc/downloader-sync.env` (contains `BINANCE_REPO_ROOT`).
 
 ## Security Note
 
