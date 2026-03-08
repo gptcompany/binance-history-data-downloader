@@ -26,35 +26,29 @@ This project provides a unified, intelligent tool to discover, download, verify,
 binance-history-data-downloader/
 ├── src/                              # Core source code
 │   ├── unified_downloader.py         # Main enhanced downloader script
-│   ├── binance_downloader.py         # Legacy downloader (maintained for compatibility)
+│   ├── binance_downloader.py         # Legacy downloader
 │   ├── discover_data_ranges.py       # Data discovery utility
 │   ├── error_handling.py             # Enhanced error handling system
 │   └── temporal_gap_detector.py      # Gap analysis and temporal validation
 ├── tests/                            # Comprehensive test suite
-│   ├── run_edge_case_tests.sh        # Complete edge case test suite (50+ tests)
-│   ├── quick_edge_test.sh            # Quick testing utility by category
-│   ├── test_enhanced_features.py     # Enhanced features unit tests
-│   ├── test_real_download.py         # Real-world download testing
-│   ├── test_historical.py           # Historical data validation tests
-│   ├── test_endpoints.py            # API endpoint testing
-│   └── test_simple_downloader.py    # Basic downloader functionality tests
+│   ├── run_edge_case_tests.sh        # Complete edge case test suite
+│   └── test_enhanced_features.py     # Enhanced features unit tests
 ├── scripts/                          # Utility scripts and examples
 │   └── example_usage.py              # Usage examples and demonstrations
 ├── docs/                             # Documentation and guides
 │   ├── EDGE_CASE_TESTING.md          # Complete edge case testing guide
-│   ├── ENHANCED_FEATURES.md          # Enhanced features documentation
-│   ├── CRYPTO_MARKETS_CORRECTION.md  # 24/7 crypto market handling notes
-│   ├── docs_clean_downloader.md      # Clean implementation documentation
-│   └── migliorare_binance_downloader.md  # Improvement suggestions
+│   └── ENHANCED_FEATURES.md          # Enhanced features documentation
 ├── config/                           # Configuration files
 │   └── binance_config.py             # Binance API configuration
-├── README.md                         # This file - comprehensive project documentation
 ├── requirements.txt                  # Python dependencies
-├── .gitignore                        # Git ignore rules (excludes data/, downloads/, reports/)
-├── data/                            # Downloaded CSV data files (git-ignored)
-├── downloads/                       # Raw ZIP archives (git-ignored)
-├── reports/                         # Analysis reports (git-ignored)
-└── logs/                           # Application logs (git-ignored)
+├── Dockerfile                        # Container image for production sync
+├── docker-compose.yml                # Container runtime definition
+├── deploy/systemd/                   # systemd units for Docker runs
+└── data/                             # CLI download directory (auto-created)
+    ├── data/                         # Extracted CSV data files
+    ├── downloads/                    # Raw ZIP archives
+    ├── logs/                         # Application logs
+    └── reports/                      # Analysis reports
 ```
 
 ## Data Directories (Auto-created, Git-ignored)
@@ -238,7 +232,7 @@ This repository uses **GitHub Actions** for continuous integration and automated
 - **Code Coverage**: Reports via `pytest-cov`, uploaded to Codecov (OIDC auth).
 
 ### Auto-Deploy Pipeline
-On push to `main` (when `Dockerfile`, `docker-compose.yml`, `pyproject.toml`, `uv.lock`, `src/**`, `scripts/**` change):
+On push to `main` (when `Dockerfile`, `docker-compose.yml`, `src/**`, `scripts/**` change):
 
 1. **Trigger**: `trigger-progressive-deploy.yml` dispatches `binance-downloader-build` to `progressive-deploy`
 2. **Build**: Progressive-deploy builds Docker image and pushes to `ghcr.io/gptcompany/binance-downloader`
