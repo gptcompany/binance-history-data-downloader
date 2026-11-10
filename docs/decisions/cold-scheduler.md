@@ -133,6 +133,24 @@ and timer, and drift must verify they are masked and inactive before any downloa
 Source retirement alone neither stops nor certifies host state; B5 reconciles it
 only after all migration PRs merge.
 
+## UTC cursor and declared upstream absence
+
+The daily cursor starts explicitly at 2026-06-29 and retries through yesterday UTC.
+Only contiguous settled dates advance it; failed runs or missing closed funding
+months hold it. Funding always starts at May 2026 and excludes the open month.
+`config/unavailable.json` lists only the two verified October 8 bookDepth absences,
+with source and ascertainment date. These remain unavailable, never complete;
+the run counts them separately from new missing files. Later publication restores
+normal validation. Every other missing file blocks progress. Cursor state is strict
+UTC JSON, locked separately and atomically replaced with directory fsync.
+
+Every scheduled invocation HEAD-checks declared absences behind the cursor too,
+including when progress is already caught up to today. Once published, the item
+leaves the active unavailable count only through normal CHECKSUM, record and
+manifest validation. The versioned list preserves the historical declaration;
+validated CSV/manifest pairs prevent duplicate publication on subsequent retries.
+An older recovered day never rewinds or advances the contiguous daily cursor.
+
 Approved-object reads use the shared `git_command` helper with
 `--no-replace-objects`; local `refs/replace` cannot substitute another commit.
 The unit bootstrap must use the same helper when reading its first Git blob.

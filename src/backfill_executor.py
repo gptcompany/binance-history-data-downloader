@@ -77,7 +77,8 @@ def publish(target, item, archive, digest):
 
 def execute_plan(plan, data_root, fetch=urlopen):
     result = dict(timezone='UTC', outcome='failed', written=0, skipped=0, records=0,
-                  missing=plan['missing'], complete_days=[])
+                  missing=plan['missing'], unavailable=plan.get('unavailable', 0),
+                  complete_days=[], settled_days=[])
     completed = set()
     root = Path(data_root)
     try:
@@ -109,10 +110,14 @@ def execute_plan(plan, data_root, fetch=urlopen):
                         completed.add(item['target'])
                     archive.unlink()
             days = {item['date'] for item in plan['files'] if item['type'] != 'fundingRate'}
-            result['complete_days'] = sorted(day for day in days if all(
-                item['target'] in completed for item in plan['files']
-                if item['date'] == (day[:7] if item['type'] == 'fundingRate' else day)))
-            result['outcome'] = 'incomplete' if plan['missing'] else 'complete'
+            for day in sorted(days):
+                items = [item for item in plan['files'] if item['date'] == (
+                    day[:7] if item['type'] == 'fundingRate' else day)]
+                if all(item['target'] in completed for item in items):
+                    result['complete_days'].append(day)
+                if all(item['target'] in completed or item['status'] == 'unavailable' for item in items):
+                    result['settled_days'].append(day)
+            result['outcome'] = 'incomplete' if (plan['missing'] or result['unavailable']) else 'complete'
     except Exception as error:
         result['error'] = str(error)
     result['finished_at'] = datetime.now(timezone.utc).isoformat()
