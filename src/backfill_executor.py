@@ -110,7 +110,8 @@ def execute_plan(plan, data_root, fetch=urlopen):
                     archive.unlink()
             days = {item['date'] for item in plan['files'] if item['type'] != 'fundingRate'}
             result['complete_days'] = sorted(day for day in days if all(
-                item['target'] in completed for item in plan['files'] if item['date'] == day))
+                item['target'] in completed for item in plan['files']
+                if item['date'] == (day[:7] if item['type'] == 'fundingRate' else day)))
             result['outcome'] = 'incomplete' if plan['missing'] else 'complete'
     except Exception as error:
         result['error'] = str(error)
