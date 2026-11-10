@@ -10,7 +10,7 @@ from backfill import make_plan
 from test_backfill_archives import CSV, KEY, NAME, transport, zipped
 
 
-def fixture_plan(key=KEY, end='2026-10-28'):
+def fixture_plan(end='2026-10-28'):
     payload = zipped()
     return make_plan(date(2026, 10, 28), date.fromisoformat(end), ['BTCUSDT'],
                      ['trades'], ['1m'], lambda _: len(payload), today=date(2026, 11, 10))
@@ -100,3 +100,23 @@ def test_actual_scheduler_argv_runs_real_parser_and_executor(tmp_path, monkeypat
     result = json.loads(capsys.readouterr().out)
     assert result['outcome'] == 'complete' and result['written'] == 1
     assert result['timezone'] == 'UTC' and result['finished_at'].endswith('+00:00')
+
+
+def test_monthly_source_downloaded_once_for_two_atomic_daily_outputs(tmp_path):
+    from backfill_executor import execute_plan
+    from io import BytesIO
+    import hashlib
+    key = KEY.replace('daily/', 'monthly/').replace('2026-10-28', '2026-10')
+    name = key.rsplit('/', 1)[-1]
+    payload = zipped([(name[:-4] + '.csv', CSV + b'2,2,3,6,1793232000000,false\n')])
+    plan = make_plan(date(2026, 10, 28), date(2026, 10, 29), ['BTCUSDT'], ['trades'],
+                     ['1m'], lambda k: None if k.startswith('daily/') else len(payload),
+                     today=date(2026, 11, 10))
+    calls = []
+    def fetch(url, timeout):
+        calls.append(url)
+        return BytesIO((hashlib.sha256(payload).hexdigest() + '  ' + name).encode()
+                       if url.endswith('.CHECKSUM') else payload)
+    result = execute_plan(plan, tmp_path, fetch)
+    assert result['written'] == 2 and result['records'] == 2 and len(calls) == 2
+    assert result['complete_days'] == ['2026-10-28', '2026-10-29']
