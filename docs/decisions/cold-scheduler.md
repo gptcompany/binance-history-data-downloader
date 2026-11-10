@@ -68,3 +68,13 @@ other schemas use `[00:00, next 00:00)`. Naive strings mean UTC, nonzero offsets
 fail. Monthly fallback validates every source row before selecting a day.
 These checks establish consistency with the checksum-verified archive, not
 independent proof that Binance published every trade. No executor is added here.
+
+## Archive integrity boundary
+
+`backfill_archives.prepare_archive` first validates the bounded official SHA256
+CHECKSUM document and exact archive name, then streams ZIP bytes to staging,
+requiring both planned byte count and hash. Failed staging is removed.
+`archive_rows` accepts one member with the expected CSV basename and never
+extracts ZIP paths. Its iterator must be exhausted before publication, including
+ZIP CRC and all source record checks. The executor will own the temporary
+directory and atomic CSV/manifest publication; this library has no CLI caller.
