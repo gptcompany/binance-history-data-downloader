@@ -43,7 +43,7 @@ binance-history-data-downloader/
 ├── requirements.txt                  # Python dependencies
 ├── Dockerfile                        # Container image for production sync
 ├── docker-compose.yml                # Container runtime definition
-├── deploy/systemd/                   # systemd units for Docker runs
+├── scripts/cold_deploy.py            # owner-managed cold systemd contract
 └── data/                             # CLI download directory (auto-created)
     ├── data/                         # Extracted CSV data files
     ├── downloads/                    # Raw ZIP archives
@@ -100,8 +100,8 @@ docker compose run --rm binance-sync
 ```
 
 Data persistence is controlled by `BINANCE_DATA_ROOT` (volume mount in `docker-compose.yml`).
-On this host, set `BINANCE_REPO_ROOT` and `BINANCE_DATA_ROOT` in `/etc/downloader-sync.env` and use the
-`deploy/systemd/binance-sync-docker.service` unit, which reads those variables via `EnvironmentFile=`.
+For the Dell cold pipeline, use the pinned image and explicit cold mount defined in
+[the scheduler decision](docs/decisions/cold-scheduler.md). The historical checkout stays read-only.
 
 ### Docker-First Execution (CI)
 These services are intended to run **inside Docker** (CI actions launch Docker services, not systemd).
@@ -231,23 +231,16 @@ This repository uses **GitHub Actions** for continuous integration and automated
 - **Platform Coverage**: Tests on Ubuntu and macOS.
 - **Code Coverage**: Reports via `pytest-cov`, uploaded to Codecov (OIDC auth).
 
-### Auto-Deploy Pipeline
-On push to `main` (when `Dockerfile`, `docker-compose.yml`, `src/**`, `scripts/**` change):
+### Cold deployment authority
 
-1. **Trigger**: `trigger-progressive-deploy.yml` dispatches `binance-downloader-build` to `progressive-deploy`
-2. **Build**: Progressive-deploy builds Docker image and pushes to `ghcr.io/gptcompany/binance-downloader`
-3. **GitOps**: Image tag updated in `gitops/apps/binance-downloader/base/kustomization.yaml`
-4. **Promotion**: Kargo promotes through dev → staging → prod
-
-**Required secret**: `PROGRESSIVE_DEPLOY_PAT` (GitHub classic PAT with `repo` scope)
-
-### Local Execution
-The service runs nightly via systemd timer (`binance-sync-docker.timer` at 03:00):
-```bash
-docker compose run --rm binance-sync
-```
-
-The systemd service uses `dotenvx` to load secrets from `/media/sam/1TB/.env` (SSOT) and `cron-wrapper.sh` from `monitoring-stack` for notifications. Runtime env vars are sourced from `/etc/downloader-sync.env` (contains `BINANCE_REPO_ROOT`).
+The source dispatch and GitOps HTTP deployment are retired. Image builds in
+progressive-deploy are manual and provide a digest; they do not schedule cold work.
+The only approved download scheduler is the owner-managed `binance-cold.timer`
+at 03:30 UTC, with a separate configuration drift check at 03:00 UTC.
+See [the scheduler decision](docs/decisions/cold-scheduler.md) for the pinned release,
+inventory and backfill contract. Installation, activation and reconciliation of
+legacy units on the Dell follow the reviewed migration; removing their source
+files does not stop a running host service. The writer performs no activation.
 
 ## Security Note
 
