@@ -1,7 +1,8 @@
 """Real offline executor: archive integrity, atomic publication and restart safety."""
 import csv
-from datetime import date
+from datetime import date, datetime, timezone
 import fcntl
+import hashlib
 import json
 
 import pytest
@@ -120,6 +121,34 @@ def test_monthly_source_downloaded_once_for_two_atomic_daily_outputs(tmp_path):
     result = execute_plan(plan, tmp_path, fetch)
     assert result['written'] == 2 and result['records'] == 2 and len(calls) == 2
     assert result['complete_days'] == ['2026-10-28', '2026-10-29']
+
+
+def test_monthly_kline_gap_does_not_stop_other_days(tmp_path):
+    from backfill import archive_key
+    from backfill_executor import execute_plan
+
+    key = archive_key('BTCUSDT', 'klines', '5m', '2026-10', monthly=True)
+    rows = []
+    for day in (27, 29):
+        start = int(datetime(2026, 10, day, tzinfo=timezone.utc).timestamp() * 1000)
+        for instant in range(start, start + 86400000, 300000):
+            rows.append(f'{instant},1,1,1,1,1,{instant + 299999},1,1,1,1,0\n')
+    payload = zipped([(key.rsplit('/', 1)[-1][:-4] + '.csv', ''.join(rows).encode())])
+    plan = make_plan(date(2026, 10, 27), date(2026, 10, 29), ['BTCUSDT'],
+                     ['klines'], ['5m'], lambda candidate: (
+                         len(payload) if candidate.removesuffix('.CHECKSUM') == key else None),
+                     today=date(2026, 11, 10))
+    checksum = f"{hashlib.sha256(payload).hexdigest()}  {key.rsplit('/', 1)[-1]}"
+    fetch, calls, _ = transport(payload, checksum.encode())
+    result = execute_plan(plan, tmp_path, fetch)
+
+    assert result['outcome'] == 'incomplete'
+    assert result['missing'] == 1 and result['written'] == 2
+    assert result['records'] == 576 and len(calls) == 2
+    assert result['complete_days'] == result['settled_days'] == ['2026-10-27', '2026-10-29']
+    before, gap, after = [tmp_path / item['target'] for item in plan['files']]
+    assert before.exists() and after.exists()
+    assert not gap.exists() and not gap.with_suffix('.json').exists()
 
 
 @pytest.mark.parametrize('missing', [None, ('BTCUSDT', '2026-10'), ('BTCUSDT', '2026-09')])
