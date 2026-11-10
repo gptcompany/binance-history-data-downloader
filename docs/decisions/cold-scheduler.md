@@ -143,3 +143,10 @@ with source and ascertainment date. These remain unavailable, never complete;
 the run counts them separately from new missing files. Later publication restores
 normal validation. Every other missing file blocks progress. Cursor state is strict
 UTC JSON, locked separately and atomically replaced with directory fsync.
+
+Every scheduled invocation HEAD-checks declared absences behind the cursor too,
+including when progress is already caught up to today. Once published, the item
+leaves the active unavailable count only through normal CHECKSUM, record and
+manifest validation. The versioned list preserves the historical declaration;
+validated CSV/manifest pairs prevent duplicate publication on subsequent retries.
+An older recovered day never rewinds or advances the contiguous daily cursor.
