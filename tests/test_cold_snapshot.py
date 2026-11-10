@@ -75,3 +75,14 @@ def test_pythonpath_cannot_shadow_approved_code(approved, tmp_path, monkeypatch)
     (shadow / 'json.py').write_text('raise RuntimeError("environment injection")')
     monkeypatch.setenv('PYTHONPATH', str(shadow))
     assert json.loads(run_approved(repo, sha, ['render']).stdout)['source'] == 'approved'
+
+
+def test_replace_ref_cannot_substitute_approved_commit(approved):
+    from scripts.cold_snapshot import run_approved
+    repo, sha, script = approved
+    script.write_text('import json\nprint(json.dumps({"source": "replacement"}))\n')
+    git(repo, 'add', '.')
+    git(repo, 'commit', '--quiet', '-m', 'replacement fixture')
+    replacement = git(repo, 'rev-parse', 'HEAD')
+    git(repo, 'replace', sha, replacement)
+    assert json.loads(run_approved(repo, sha, ['drift']).stdout)['source'] == 'approved'
