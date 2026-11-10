@@ -73,3 +73,41 @@ def test_invalid_persisted_cursor_fails_before_downloading(tmp_path):
     with pytest.raises(ValueError):
         run_cursor(tmp_path, date(2026, 10, 8), date(2026, 10, 9),
                    lambda *args: pytest.fail('invalid cursor reached downloader'))
+
+
+def test_late_publication_is_recovered_after_cursor_passed_absence(tmp_path, monkeypatch, capsys):
+    import hashlib
+    from io import BytesIO
+    import backfill_cursor as cursor
+    from backfill import BASE, make_plan
+    from backfill_executor import execute_plan
+    from test_backfill_archives import zipped
+    published = False
+    requests = []
+    key = 'daily/bookDepth/BTCUSDT/BTCUSDT-bookDepth-2026-10-08.zip'
+    payload = zipped([(key.rsplit('/', 1)[-1][:-4] + '.csv',
+                      b'timestamp,percentage,depth,notional\n2026-10-08 00:00:04,-1,3,6\n')])
+    def head(candidate):
+        requests.append(candidate)
+        return len(payload) if published and candidate.removesuffix('.CHECKSUM') == key else None
+    def plan(start, end, *_args, **kwargs):
+        return make_plan(start, end, ('BTCUSDT',), ('bookDepth',), ('1m',),
+                         head=head, today=kwargs['today'])
+    def fetch(url, timeout):
+        assert published and url.removesuffix('.CHECKSUM') == BASE + key
+        return BytesIO((hashlib.sha256(payload).hexdigest() + '  ' + key.rsplit('/', 1)[-1]).encode()
+                       if url.endswith('.CHECKSUM') else payload)
+    monkeypatch.setattr(cursor, 'make_plan', plan)
+    monkeypatch.setattr(cursor, 'execute_plan', lambda plan, root: execute_plan(plan, root, fetch))
+    argv = ['--initial-date', '2026-10-08', '--data-root', str(tmp_path)]
+    assert cursor.main(argv, today=date(2026, 10, 9)) == 1
+    first = json.loads(capsys.readouterr().out)
+    assert first['cursor'] == '2026-10-09' and first['unavailable'] == 1
+    published = True
+    requests.clear()
+    cursor.main(argv, today=date(2026, 10, 10))
+    second = json.loads(capsys.readouterr().out)
+    assert key in requests
+    assert second['written'] == 1 and second['unavailable'] == 0
+    target = tmp_path / 'BTCUSDT/bookDepth/BTCUSDT-bookDepth-2026-10-08.csv'
+    assert target.exists() and target.with_suffix('.json').exists()

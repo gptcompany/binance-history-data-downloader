@@ -56,11 +56,6 @@ def run_cursor(data_root, initial, today, execute):
         start = date.fromisoformat(state['next_date'])
         if start > today or start < initial:
             raise ValueError('Cursor outside the approved UTC range')
-        if start == today:
-            return dict(timezone='UTC', outcome='complete', cursor=start.isoformat(),
-                        written=0, skipped=0, records=0, missing=0, unavailable=0,
-                        complete_days=[], settled_days=[],
-                        finished_at=datetime.now(timezone.utc).isoformat())
         result = execute(start, today - timedelta(days=1))
         current = start
         if result['outcome'] != 'failed' and not result.get('cursor_blocked', False):
@@ -95,8 +90,21 @@ def main(argv=None, today=None):
     try:
         entries = json.loads((Path(__file__).parents[1] / 'config/unavailable.json').read_text())
         def execute(start, end):
-            plan = make_plan(start, end, SYMBOLS, TYPES, INTERVALS,
-                             funding_start=date(2026, 5, 1), today=today)
+            plan = (make_plan(start, end, SYMBOLS, TYPES, INTERVALS,
+                              funding_start=date(2026, 5, 1), today=today)
+                    if start <= end else dict(files=[], missing=0))
+            # The cursor settles acknowledged absence, never its eventual recovery.
+            validate(ABSENCES, entries)
+            targets = {item['target'] for item in plan['files']}
+            for entry in entries:
+                day = date.fromisoformat(entry['date'])
+                if day < start and day <= end:
+                    retry = make_plan(day, day, (entry['symbol'],), (entry['type'],),
+                                      INTERVALS, today=today)
+                    for item in retry['files']:
+                        if item['target'] not in targets:
+                            plan['files'].append(item)
+                            targets.add(item['target'])
             classify_unavailable(plan, entries)
             result = execute_plan(plan, args.data_root)
             result['cursor_blocked'] = any(item['type'] == 'fundingRate' and
