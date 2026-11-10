@@ -169,3 +169,7 @@ leaves the active unavailable count only through normal CHECKSUM, record and
 manifest validation. The versioned list preserves the historical declaration;
 validated CSV/manifest pairs prevent duplicate publication on subsequent retries.
 An older recovered day never rewinds or advances the contiguous daily cursor.
+
+Approved-object reads use the shared `git_command` helper with
+`--no-replace-objects`; local `refs/replace` cannot substitute another commit.
+The unit bootstrap must use the same helper when reading its first Git blob.
