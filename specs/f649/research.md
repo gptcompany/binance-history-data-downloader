@@ -13,3 +13,15 @@ and argparse/json supply the command and serialization. No new dependency or cop
 external code is required. Offline fixtures characterize the new boundary RED/GREEN
 in CI; no local test or build is authorized. Content validation and execution are
 subsequent slices with reproducing fixtures committed before implementation.
+
+
+Cold contract mapping: Dockerfile still starts the legacy shell sync. The new
+container argv must explicitly override it; a characterization fixture passes
+on that unchanged Dockerfile before implementation. Existing systemd Docker units
+are not installed or edited by this pure-rendering slice.
+Selected boundary: strict JSON inventory, four deterministic unit strings and one
+Docker argv. Standard library has no JSON Schema validator; reuse maintained
+jsonschema rather than a custom key/type validator. Bybit PRs #7/#8 are design
+references only (license endpoint returned 404; no code copied). Installer source
+byte checks and one-result logging remain explicit prerequisites, not implemented
+claims. RED fixtures precede implementation; CI is the only test authority.

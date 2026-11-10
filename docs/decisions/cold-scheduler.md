@@ -36,3 +36,21 @@ per ZIP, validate CSV schemas/UTC dates/unique keys and the complete kline grid,
 filter monthly fallback records, atomically publish under a lock and retain provenance,
 CSV hash and counts. Existing CSV presence alone must never imply verified completion.
 The two bookDepth holes on 2026-10-08 remain explicit; no synthetic rows or complete-day claim.
+
+## Rendering contract
+
+`scripts/cold_deploy.py` renders `binance-cold.service/.timer` (03:30 UTC)
+and `binance-cold-drift.service/.timer` (03:00 UTC). The second timer checks
+configuration only; it never schedules downloads. Both are persistent, with
+journal output. The downloader requires the explicit cold path and Docker.
+Inventory is strict JSON: image digest, image source full SHA, user, numeric UID/GID
+and normalized cold root are mandatory; no unknown keys or mobile tags.
+Documented Dell inventory defaults are user `sam`, UID/GID 1000 and cold root
+`/data/cold/12TB/binance-history-data-downloader/data`; they are not host overrides.
+The release defaults to `/opt/binance-cold/<approved-full-SHA>`.
+
+This slice only renders strings and container argv. It cannot install units or
+run downloads. The final inventory must contain the real build digest and source
+SHA before installation. Subsequent installer/runner slices must verify approved
+bytes independently of Git index flags and emit exactly one JSON result per run,
+with UTC and counts. No unit may be enabled before these slices are merged.
