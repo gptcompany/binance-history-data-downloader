@@ -120,3 +120,39 @@ def test_monthly_source_downloaded_once_for_two_atomic_daily_outputs(tmp_path):
     result = execute_plan(plan, tmp_path, fetch)
     assert result['written'] == 2 and result['records'] == 2 and len(calls) == 2
     assert result['complete_days'] == ['2026-10-28', '2026-10-29']
+
+
+@pytest.mark.parametrize('missing', [None, ('BTCUSDT', '2026-10'), ('BTCUSDT', '2026-09')])
+def test_day_requires_selected_funding_of_same_month_for_every_symbol(tmp_path, missing):
+    from backfill_executor import execute_plan
+    from backfill_archives import BASE
+    from datetime import datetime, timezone
+    from io import BytesIO
+    import hashlib
+    archives = {}
+    for symbol in ['BTCUSDT', 'ETHUSDT']:
+        daily = KEY.replace('BTCUSDT', symbol)
+        archives[daily] = zipped([(daily.rsplit('/', 1)[-1][:-4] + '.csv', CSV)])
+        for month in [9, 10]:
+            period = f'2026-{month:02d}'
+            if missing == (symbol, period):
+                continue
+            key = f'monthly/fundingRate/{symbol}/{symbol}-fundingRate-{period}.zip'
+            instant = int(datetime(2026, month, 28, tzinfo=timezone.utc).timestamp() * 1000)
+            data = f'calc_time,funding_interval_hours,last_funding_rate\n{instant},8,0.001\n'.encode()
+            archives[key] = zipped([(key.rsplit('/', 1)[-1][:-4] + '.csv', data)])
+    def head(key):
+        key = key.removesuffix('.CHECKSUM')
+        return len(archives[key]) if key in archives else None
+    def fetch(url, timeout):
+        key = url.removeprefix(BASE)
+        if key.endswith('.CHECKSUM'):
+            key = key.removesuffix('.CHECKSUM')
+            return BytesIO((hashlib.sha256(archives[key]).hexdigest() + '  ' + key.rsplit('/', 1)[-1]).encode())
+        return BytesIO(archives[key])
+    plan = make_plan(date(2026, 10, 28), date(2026, 10, 28), ['BTCUSDT', 'ETHUSDT'],
+                     ['trades', 'fundingRate'], ['1m'], head,
+                     funding_start=date(2026, 9, 1), today=date(2026, 11, 10))
+    result = execute_plan(plan, tmp_path, fetch)
+    assert result['outcome'] == ('complete' if missing is None else 'incomplete')
+    assert result['complete_days'] == ([] if missing == ('BTCUSDT', '2026-10') else ['2026-10-28'])
