@@ -81,3 +81,12 @@ def test_service_bootstraps_committed_snapshot_without_executing_worktree():
     assert "'show', '" + 'a' * 40 + ":scripts/cold_snapshot.py'" in command
     assert 'exec(subprocess.check_output' in command
     assert f'{release}/scripts/cold_deploy.py' not in command
+
+
+def test_bootstrap_disables_git_replacement_objects():
+    from scripts.cold_deploy import render_units
+    release = Path('/opt/binance-cold/' + 'a' * 40)
+    for name, text in render_units(CONFIG, release).items():
+        if name.endswith('.service'):
+            command = parse_unit(text)['Service']['ExecStart']
+            assert "'git', '--no-replace-objects', '-C'" in command

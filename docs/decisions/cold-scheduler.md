@@ -114,7 +114,7 @@ No installation or action is performed by introducing this bootstrap.
 Inventory has one source, `deploy/cold.json` in this owner repository;
 network-infra delivers the approved owner SHA, without a second inventory copy.
 The service uses isolated Python to read `scripts/cold_snapshot.py` with
-`git show FULL_SHA:path`, then runs the action from that approved snapshot.
+`git --no-replace-objects show FULL_SHA:path`, then runs the action from that approved snapshot.
 It never executes deploy code from the release working tree.
 `cold_host.install` renders four units and masks both legacy service/timer pairs
 with `/dev/null`; it does not reload, enable, start or stop systemd. B5 must
@@ -158,3 +158,7 @@ The dry-run emits metadata only, including days/files/expected bytes; omit that
 flag only for operator-authorized execution. One JSON result records UTC, outcome
 and counts; malformed child JSON or inconsistent exit status fails visibly.
 No activation or download is performed during this implementation.
+
+Approved-object reads use the shared `git_command` helper with
+`--no-replace-objects`; local `refs/replace` cannot substitute another commit.
+The unit bootstrap must use the same helper when reading its first Git blob.
