@@ -1,4 +1,5 @@
 """Actual host CLI on temporary inventory and fake Docker/systemd boundaries."""
+from datetime import date
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -63,9 +64,14 @@ def test_daily_runner_uses_pinned_cursor_cli(host, capsys, monkeypatch):
 
 
 def test_manual_backfill_dry_run_keeps_dates_and_funding(host, capsys, monkeypatch):
+    from backfill import make_plan
+    plan = make_plan(date(2026, 6, 29), date(2026, 11, 9), ('BTCUSDT',),
+                     ('bookDepth',), ('1m',), head=lambda key: None,
+                     today=date(2026, 11, 10))
     code, record, calls = invoke(host, 'backfill', capsys, monkeypatch, extra=(
-        '--start-date', '2026-06-29', '--end-date', '2026-11-09', '--dry-run'))
-    assert code == 0 and calls[0][-1] == '--dry-run'
+        '--start-date', '2026-06-29', '--end-date', '2026-11-09', '--dry-run'),
+        result=SimpleNamespace(returncode=0, stdout=json.dumps(plan)))
+    assert code == 0 and record['plan'] == plan and calls[0][-1] == '--dry-run'
     assert '--funding-start' in calls[0] and '2026-05-01' in calls[0]
 
 
