@@ -79,6 +79,22 @@ extracts ZIP paths. Its iterator must be exhausted before publication, including
 ZIP CRC and all source record checks. The executor will own the temporary
 directory and atomic CSV/manifest publication; this library has no CLI caller.
 
+## Idempotent execution
+
+Without `--dry-run`, `--data-root` is mandatory. An exclusive filesystem lock
+protects the run. Each source ZIP is fetched once per run; monthly sources feed
+separate daily outputs. After exhausting validation, CSV and strict JSON manifest
+are fsynced and replaced, then their parent directory is fsynced. A crash between
+the two replacements leaves mismatched provenance; the next run re-verifies.
+A skip requires matching selection/provenance schema and actual CSV SHA256,
+never mere existence. The manifest records source ZIP hash, CSV hash and rows.
+One JSON result reports UTC, outcome and counts; incomplete/unpublished days
+return nonzero and never enter complete_days. A day also requires each selected
+symbol’s funding target for that UTC month; missing funding in another month
+does not invalidate that day. Completion covers requested series,
+not an independent assertion that Binance published every trade. No scheduler
+activation, image build or real backfill is performed by this change.
+
 ## Legacy owner unit retirement
 
 The repository no longer distributes `deploy/systemd/binance-sync-docker.service`
