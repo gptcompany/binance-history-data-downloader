@@ -1,12 +1,11 @@
 """Actual host CLI on temporary inventory and fake Docker/systemd boundaries."""
-from datetime import date
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from tests.test_cold_contract import CONFIG
+from test_cold_contract import CONFIG
 
 
 @pytest.fixture
