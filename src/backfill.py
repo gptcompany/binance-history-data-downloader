@@ -1,4 +1,4 @@
-"""Plan the cold USD-M backfill using public metadata, without downloading ZIPs."""
+"""Plan or execute a verified cold USD-M backfill; dry-run reads metadata only."""
 import argparse
 from datetime import date, datetime, timedelta, timezone
 import json

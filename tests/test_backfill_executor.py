@@ -72,8 +72,8 @@ def test_late_invalid_record_preserves_existing_csv_and_manifest(tmp_path):
 
 def test_missing_archive_never_completes_day(tmp_path):
     from backfill_executor import execute_plan
-    plan = fixture_plan()
-    plan['files'][0].update(source=None, status='unpublished', bytes=None)
+    plan = make_plan(date(2026, 10, 28), date(2026, 10, 28), ['BTCUSDT'],
+                     ['trades'], ['1m'], lambda _: None, today=date(2026, 11, 10))
     result = execute_plan(plan, tmp_path, lambda *_args, **_kwargs: pytest.fail('no GET'))
     assert result['outcome'] == 'incomplete' and result['missing'] == 1
     assert result['complete_days'] == []
