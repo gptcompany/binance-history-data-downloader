@@ -108,3 +108,12 @@ Git bytes outside the mutable checkout; invoking a modified checkout copy is not
 a trust boundary. The following installer/runner slice will wire this entrypoint
 and compare installed bootstrap, units and inventory against approved rendering.
 No installation or action is performed by introducing this bootstrap.
+
+## Legacy owner unit retirement
+
+The repository no longer distributes `deploy/systemd/binance-sync-docker.service`
+or its timer. README instructions now point to the sole cold authority. The final
+installer must mask both names, plus monitoring-stack's `binance-sync.service`
+and timer, and drift must verify they are masked and inactive before any download.
+Source retirement alone neither stops nor certifies host state; B5 reconciles it
+only after all migration PRs merge.
