@@ -62,21 +62,25 @@ def run_cursor(data_root, initial, today, execute):
             settled = set(result['settled_days'])
             while current < today and current.isoformat() in settled:
                 current += timedelta(days=1)
-        state['next_date'] = current.isoformat()
-        with NamedTemporaryFile(mode='w', dir=root, delete=False) as temporary:
-            staged = Path(temporary.name)
-            try:
-                json.dump(state, temporary, sort_keys=True)
-                temporary.flush()
-                os.fsync(temporary.fileno())
-                os.replace(staged, path)
-            finally:
-                staged.unlink(missing_ok=True)
-        directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
         try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+            state['next_date'] = current.isoformat()
+            with NamedTemporaryFile(mode='w', dir=root, delete=False) as temporary:
+                staged = Path(temporary.name)
+                try:
+                    json.dump(state, temporary, sort_keys=True)
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                    os.replace(staged, path)
+                finally:
+                    staged.unlink(missing_ok=True)
+            directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        except Exception as error:
+            result.update(outcome='failed', phase='cursor', error=str(error))
+            return result
         result['cursor'] = current.isoformat()
         return result
 
