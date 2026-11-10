@@ -95,6 +95,20 @@ does not invalidate that day. Completion covers requested series,
 not an independent assertion that Binance published every trade. No scheduler
 activation, image build or real backfill is performed by this change.
 
+## Approved deploy snapshot
+
+`scripts/cold_snapshot.py REPOSITORY FULL_SHA ACTION ...` obtains only that
+commit's `git archive`, extracts a temporary data-filtered snapshot, and executes
+its `scripts/cold_deploy.py` with Python isolated mode. It never imports deploy
+code from the mutable repository, even when index flags hide changes. Branches,
+abbreviated SHAs and missing objects fail without fallback; temporary bytes are
+removed on success or failure. The Python environment and Git installation are
+host-managed prerequisites. Delivery must install this bootstrap from approved
+Git bytes outside the mutable checkout; invoking a modified checkout copy is not
+a trust boundary. The following installer/runner slice will wire this entrypoint
+and compare installed bootstrap, units and inventory against approved rendering.
+No installation or action is performed by introducing this bootstrap.
+
 ## Legacy owner unit retirement
 
 The repository no longer distributes `deploy/systemd/binance-sync-docker.service`
@@ -103,3 +117,7 @@ installer must mask both names, plus monitoring-stack's `binance-sync.service`
 and timer, and drift must verify they are masked and inactive before any download.
 Source retirement alone neither stops nor certifies host state; B5 reconciles it
 only after all migration PRs merge.
+
+Approved-object reads use the shared `git_command` helper with
+`--no-replace-objects`; local `refs/replace` cannot substitute another commit.
+The unit bootstrap must use the same helper when reading its first Git blob.
