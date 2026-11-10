@@ -132,3 +132,7 @@ installer must mask both names, plus monitoring-stack's `binance-sync.service`
 and timer, and drift must verify they are masked and inactive before any download.
 Source retirement alone neither stops nor certifies host state; B5 reconciles it
 only after all migration PRs merge.
+
+Approved-object reads use the shared `git_command` helper with
+`--no-replace-objects`; local `refs/replace` cannot substitute another commit.
+The unit bootstrap must use the same helper when reading its first Git blob.
