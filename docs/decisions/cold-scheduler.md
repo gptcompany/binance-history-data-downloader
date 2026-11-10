@@ -54,3 +54,17 @@ run downloads. The final inventory must contain the real build digest and source
 SHA before installation. Subsequent installer/runner slices must verify approved
 bytes independently of Git index flags and emit exactly one JSON result per run,
 with UTC and counts. No unit may be enabled before these slices are merged.
+
+## Record validation boundary
+
+`backfill_records.validated_rows` consumes the whole source archive and yields
+only the requested UTC period. The caller must exhaust it before atomically
+publishing any CSV: the final completeness check runs at end of iteration.
+Klines require the full 1m/5m/15m grid and exact close time. All seven USD-M
+schemas require finite numeric fields, ordered unique record keys and source
+period membership. Funding remains monthly; missing files remain unpublished.
+Metrics uses `(00:00, next 00:00]`, confirmed on both symbols for June 27/28;
+other schemas use `[00:00, next 00:00)`. Naive strings mean UTC, nonzero offsets
+fail. Monthly fallback validates every source row before selecting a day.
+These checks establish consistency with the checksum-verified archive, not
+independent proof that Binance published every trade. No executor is added here.
