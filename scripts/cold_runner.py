@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 from jsonschema import Draft202012Validator
 from scripts.cold_deploy import docker_command, inventory
@@ -17,6 +18,7 @@ RESULT = {'type': 'object', 'additionalProperties': False,
               **{key: COUNTER for key in ('written', 'skipped', 'records', 'missing', 'unavailable')},
               complete_days=DATES, settled_days=DATES, cursor={'type': 'string'},
               cursor_blocked={'type': 'boolean'}, error={'type': 'string'}, finished_at={'type': 'string'})}
+RESULT['properties']['phase'] = {'enum': ['cursor']}
 FILE = {'type': 'object', 'additionalProperties': False,
         'required': ['symbol', 'type', 'interval', 'date', 'source', 'target', 'bytes', 'status'],
         'properties': {**{key: {'type': 'string'} for key in ('symbol', 'type', 'date', 'target')},
@@ -41,8 +43,10 @@ def main(argv=None, approved=None):
     args = parser.parse_args(argv)
     approved = approved or Path(__file__).parents[1]
     result = dict(timezone='UTC', outcome='complete', written=0, skipped=0,
-                  records=0, missing=0, unavailable=0)
+                  records=0, missing=0, unavailable=0, phase='preflight', counts_status='not_started')
     try:
+        if args.dry_run and args.action != 'backfill':
+            raise ValueError('Only backfill supports dry-run')
         config = inventory(json.loads((approved / 'deploy/cold.json').read_text()))
         if args.action == 'install':
             install(config, args.release, args.unit_directory)
@@ -63,17 +67,30 @@ def main(argv=None, approved=None):
                     command = docker_command(config, args.start_date, args.end_date, args.dry_run)
                     command[command.index('--start-date'):command.index('--start-date')] = [
                         '--funding-start', '2026-05-01']
-                child = subprocess.run(command, capture_output=True, text=True, check=False)
+                # Adapted from the approved Bybit cold runner: bytes, explicit
+                # container boundary and unknown progress until the child validates.
+                result.update(phase='container', counts_status='not_started',
+                              **{key: None for key in ('written', 'skipped', 'records', 'missing', 'unavailable')})
+                child = subprocess.run(command, capture_output=True, check=False)
+                result.update(returncode=child.returncode, counts_status='unknown')
+                sys.stderr.buffer.write(child.stderr)
+                sys.stderr.buffer.flush()
+                if child.returncode in (125, 126, 127):
+                    result['counts_status'] = 'not_started'
+                    raise ValueError('ContainerNotStarted')
                 payload = json.loads(child.stdout)
                 if args.dry_run and 'outcome' not in payload:
                     Draft202012Validator(PLAN).validate(payload)
-                    result.update(plan=payload, missing=payload['missing'])
+                    summary = dict(timezone='UTC', outcome='complete', plan=payload,
+                                   written=0, skipped=0, records=0, missing=payload['missing'])
                 else:
                     Draft202012Validator(RESULT).validate(payload)
-                    result = payload
-                expected = 0 if result['outcome'] == 'complete' else 1
+                    summary = payload
+                expected = 0 if summary['outcome'] == 'complete' else 1
                 if child.returncode != expected:
                     raise ValueError('Container exit status disagrees with JSON outcome')
+                result = dict(summary, phase=summary.get('phase', 'container'),
+                              counts_status='reported', returncode=child.returncode)
     except Exception as error:
         result.update(outcome='failed', error=str(error))
     result['finished_at'] = datetime.now(timezone.utc).isoformat()

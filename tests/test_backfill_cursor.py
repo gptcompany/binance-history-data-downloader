@@ -111,3 +111,21 @@ def test_late_publication_is_recovered_after_cursor_passed_absence(tmp_path, mon
     assert second['written'] == 1 and second['unavailable'] == 0
     target = tmp_path / 'BTCUSDT/bookDepth/BTCUSDT-bookDepth-2026-10-08.csv'
     assert target.exists() and target.with_suffix('.json').exists()
+
+
+def test_cursor_persistence_failure_preserves_published_counts(tmp_path, monkeypatch, capsys):
+    import backfill_cursor as cursor
+    monkeypatch.setattr(cursor, 'make_plan', lambda *args, **kwargs: dict(files=[], missing=0))
+    monkeypatch.setattr(cursor, 'execute_plan', lambda *args: dict(timezone='UTC',
+        outcome='complete', written=2, skipped=3, records=5, missing=0,
+        settled_days=['2026-11-09']))
+    def fail_replace(*args):
+        raise OSError('fixture cursor storage failure')
+    monkeypatch.setattr(cursor.os, 'replace', fail_replace)
+    assert cursor.main(['--initial-date', '2026-11-09', '--data-root', str(tmp_path)],
+                       today=date(2026, 11, 10)) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record['written'] == 2 and record['skipped'] == 3 and record['records'] == 5
+    assert record['outcome'] == 'failed' and record['phase'] == 'cursor'
