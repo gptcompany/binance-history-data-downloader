@@ -10,11 +10,16 @@ import tarfile
 from tempfile import TemporaryDirectory
 
 
+def git_command(repository, *arguments):
+    """Read literal approved objects, ignoring mutable replacement references."""
+    return ['git', '--no-replace-objects', '-C', str(repository), *arguments]
+
+
 @contextmanager
 def approved_snapshot(repository, sha):
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise ValueError('Require an approved full commit SHA')
-    command = ['git', '-C', str(repository)]
+    command = git_command(repository)
     resolved = subprocess.check_output(command + ['rev-parse', '--verify', sha + '^{commit}'], text=True).strip()
     if resolved != sha:
         raise ValueError('Approved object must be a commit')
