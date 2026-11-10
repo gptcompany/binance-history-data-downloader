@@ -94,3 +94,12 @@ symbol’s funding target for that UTC month; missing funding in another month
 does not invalidate that day. Completion covers requested series,
 not an independent assertion that Binance published every trade. No scheduler
 activation, image build or real backfill is performed by this change.
+
+## Legacy owner unit retirement
+
+The repository no longer distributes `deploy/systemd/binance-sync-docker.service`
+or its timer. README instructions now point to the sole cold authority. The final
+installer must mask both names, plus monitoring-stack's `binance-sync.service`
+and timer, and drift must verify they are masked and inactive before any download.
+Source retirement alone neither stops nor certifies host state; B5 reconciles it
+only after all migration PRs merge.
