@@ -143,3 +143,18 @@ with source and ascertainment date. These remain unavailable, never complete;
 the run counts them separately from new missing files. Later publication restores
 normal validation. Every other missing file blocks progress. Cursor state is strict
 UTC JSON, locked separately and atomically replaced with directory fsync.
+
+## Approved host CLI
+
+The Git-object bootstrap calls cold_snapshot, which runs cold_deploy from an
+approved archive. Actions install/drift/run/backfill read only the owner's
+`deploy/cold.json`. Install writes units/masks without activation. Drift compares
+host and manager state. Run checks drift first, then invokes the pinned container
+cursor. Backfill requires explicit dates and includes funding since May 2026.
+After B5 reconciliation, the approved Git-object bootstrap receives the argument
+suffix `-- backfill RELEASE --start-date 2026-06-29 --end-date 2026-11-09 --dry-run`
+(instead of the timer action). Never execute a working-tree bootstrap file.
+The dry-run emits metadata only, including days/files/expected bytes; omit that
+flag only for operator-authorized execution. One JSON result records UTC, outcome
+and counts; malformed child JSON or inconsistent exit status fails visibly.
+No activation or download is performed during this implementation.

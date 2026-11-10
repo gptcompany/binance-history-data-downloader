@@ -73,3 +73,8 @@ def docker_command(config, start: date, end: date, dry_run=False):
             f"type=bind,src={config['cold_root']},dst=/data", '--entrypoint', 'python',
             config['image'], '/app/src/backfill.py', '--start-date', start.isoformat(),
             '--end-date', end.isoformat(), '--data-root', '/data'] + (['--dry-run'] if dry_run else [])
+
+
+if __name__ == '__main__':
+    from scripts.cold_runner import main
+    raise SystemExit(main())
