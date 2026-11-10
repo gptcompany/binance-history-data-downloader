@@ -28,7 +28,7 @@ def invoke(host, action, capsys, monkeypatch, *, findings=(), result=None, extra
         calls.append(command)
         if callable(result):
             return result(command, kwargs)
-        return result or SimpleNamespace(returncode=0, stdout=json.dumps(dict(
+        return result or SimpleNamespace(stderr=b'', returncode=0, stdout=json.dumps(dict(
             timezone='UTC', outcome='complete', written=2, skipped=3, records=5,
             missing=0, unavailable=0, complete_days=['2026-11-09'],
             settled_days=['2026-11-09'], finished_at='2026-11-10T03:30:00+00:00')))
@@ -72,14 +72,14 @@ def test_manual_backfill_dry_run_keeps_dates_and_funding(host, capsys, monkeypat
                      today=date(2026, 11, 10))
     code, record, calls = invoke(host, 'backfill', capsys, monkeypatch, extra=(
         '--start-date', '2026-06-29', '--end-date', '2026-11-09', '--dry-run'),
-        result=SimpleNamespace(returncode=0, stdout=json.dumps(plan)))
+        result=SimpleNamespace(stderr=b'', returncode=0, stdout=json.dumps(plan)))
     assert code == 0 and record['plan'] == plan and calls[0][-1] == '--dry-run'
     assert '--funding-start' in calls[0] and '2026-05-01' in calls[0]
 
 
-@pytest.mark.parametrize('result', [SimpleNamespace(returncode=125, stdout=''),
-    SimpleNamespace(returncode=0, stdout='{}'),
-    SimpleNamespace(returncode=1, stdout=json.dumps(dict(timezone='UTC', outcome='complete',
+@pytest.mark.parametrize('result', [SimpleNamespace(stderr=b'', returncode=125, stdout=''),
+    SimpleNamespace(stderr=b'', returncode=0, stdout='{}'),
+    SimpleNamespace(stderr=b'', returncode=1, stdout=json.dumps(dict(timezone='UTC', outcome='complete',
         written=1, skipped=0, records=1, missing=0)))])
 def test_invalid_child_result_is_visible_failure(host, capsys, monkeypatch, result):
     code, record, calls = invoke(host, 'run', capsys, monkeypatch, result=result)
