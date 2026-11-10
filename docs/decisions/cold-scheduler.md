@@ -109,6 +109,21 @@ a trust boundary. The following installer/runner slice will wire this entrypoint
 and compare installed bootstrap, units and inventory against approved rendering.
 No installation or action is performed by introducing this bootstrap.
 
+## Host reconciliation boundary
+
+Inventory has one source, `deploy/cold.json` in this owner repository;
+network-infra delivers the approved owner SHA, without a second inventory copy.
+The service uses isolated Python to read `scripts/cold_snapshot.py` with
+`git --no-replace-objects show FULL_SHA:path`, then runs the action from that approved snapshot.
+It never executes deploy code from the release working tree.
+`cold_host.install` renders four units and masks both legacy service/timer pairs
+with `/dev/null`; it does not reload, enable, start or stop systemd. B5 must
+reconcile loaded state after merge. Drift compares every approved source file's
+bytes, installed unit bytes, FragmentPath, DropInPaths and NeedDaemonReload, plus
+legacy masks and inactive state. No service-rewritten keys are exempt here.
+Python environment and Git remain host-managed trusted prerequisites.
+The runner/CLI follows separately; no activation is permitted before it is merged.
+
 ## Legacy owner unit retirement
 
 The repository no longer distributes `deploy/systemd/binance-sync-docker.service`

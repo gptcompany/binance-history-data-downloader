@@ -32,8 +32,7 @@ def test_only_one_download_timer_and_independent_drift_timer(tmp_path):
     assert service['Unit']['Requires'] == 'docker.service'
     assert service['Service']['User'] == 'sam'
     assert service['Service']['Environment'] == 'TZ=UTC'
-    assert service['Service']['ExecStart'] == (
-        f'{RELEASE}/.venv/bin/python {RELEASE}/scripts/cold_deploy.py run {RELEASE}')
+    assert "'run'" in service['Service']['ExecStart']
     assert service['Service']['StandardOutput'] == 'journal'
     assert service['Service']['StandardError'] == 'journal'
     for name, hour in [('binance-cold', '03:30'), ('binance-cold-drift', '03:00')]:
@@ -41,7 +40,7 @@ def test_only_one_download_timer_and_independent_drift_timer(tmp_path):
         assert timer['OnCalendar'] == f'*-*-* {hour}:00 UTC'
         assert timer['Persistent'] == 'true'
         assert timer['Unit'] == name + '.service'
-    assert ' drift ' in parse_unit(units['binance-cold-drift.service'])['Service']['ExecStart']
+    assert "'drift'" in parse_unit(units['binance-cold-drift.service'])['Service']['ExecStart']
     assert render_units(CONFIG, RELEASE) == units
     assert not list(tmp_path.iterdir())
 

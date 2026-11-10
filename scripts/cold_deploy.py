@@ -1,8 +1,10 @@
 """Pure contract for the owner-managed Binance historical cold scheduler."""
 from datetime import date
 from pathlib import PurePosixPath
+import re
 
 from jsonschema import Draft202012Validator
+from scripts.cold_snapshot import git_command
 
 CONFIG_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -39,6 +41,9 @@ def inventory(config):
 def render_units(config, release):
     config = inventory(config)
     release = safe_path(release)
+    sha = PurePosixPath(release).name
+    if not re.fullmatch('[0-9a-f]{40}', sha):
+        raise ValueError('Release directory must be the approved full commit SHA')
     units = {}
     for name, action, clock in [('binance-cold', 'run', '03:30'),
                                 ('binance-cold-drift', 'drift', '03:00')]:
@@ -47,9 +52,13 @@ def render_units(config, release):
             header += [f"RequiresMountsFor={config['cold_root']}",
                        'Requires=docker.service', 'After=docker.service network-online.target',
                        'Wants=network-online.target']
+        bootstrap = ("import subprocess,sys;sys.argv=" +
+                     repr(['cold_snapshot', release, sha, action, release]) +
+                     ";exec(subprocess.check_output(" +
+                     repr(git_command(release, 'show', sha + ':scripts/cold_snapshot.py')) + "))")
         units[name + '.service'] = '\n'.join(header + [
             '', '[Service]', 'Type=oneshot', f"User={config['user']}", 'Environment=TZ=UTC',
-            f'ExecStart={release}/.venv/bin/python {release}/scripts/cold_deploy.py {action} {release}',
+            f'ExecStart={release}/.venv/bin/python -I -c "{bootstrap}"',
             'TimeoutStartSec=infinity', 'StandardOutput=journal', 'StandardError=journal', ''])
         units[name + '.timer'] = '\n'.join([
             '[Unit]', f'Description=Binance historical cold {action} UTC', '', '[Timer]',
