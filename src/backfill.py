@@ -34,8 +34,8 @@ def archive_key(symbol, kind, interval, period, monthly=False):
     return f"{directory}/{symbol}-{interval or kind}-{period}.zip"
 
 
-def make_plan(start, end, symbols, types, intervals, head=head_size, funding_start=None):
-    today = datetime.now(timezone.utc).date()
+def make_plan(start, end, symbols, types, intervals, head=head_size, funding_start=None,
+              *, today):
     if start > end or end >= today:
         raise ValueError("Require an ordered range of closed UTC days")
     for selected, allowed in ((symbols, SYMBOLS), (types, TYPES), (intervals, INTERVALS)):
@@ -85,7 +85,7 @@ def make_plan(start, end, symbols, types, intervals, head=head_size, funding_sta
             "missing": sum(item["status"] == "unpublished" for item in files)}
 
 
-def main(argv=None, head=head_size):
+def main(argv=None, head=head_size, today=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-date", type=date.fromisoformat, required=True)
     parser.add_argument("--end-date", type=date.fromisoformat, required=True)
@@ -97,7 +97,8 @@ def main(argv=None, head=head_size):
     args = parser.parse_args(argv)
     result = make_plan(args.start_date, args.end_date, args.symbols.split(","),
                        args.data_types.split(","), args.intervals.split(","), head,
-                       args.funding_start)
+                       args.funding_start,
+                       today=today if today is not None else datetime.now(timezone.utc).date())
     print(json.dumps(result, indent=2))
     return 0
 

@@ -27,7 +27,11 @@ not disable them or certify the scheduler migration complete.
 --intervals 1m,5m,15m --dry-run` prints JSON metadata only: days, files, compressed
 bytes (distinct archives), CHECKSUM availability, monthly fallbacks and unpublished holes.
 It makes HEAD requests, writes no files and never fetches an archive. Availability
-does not certify records or checksum contents. A later executor must verify SHA256
+does not certify records or checksum contents. Funding selects months starting no
+later than the requested end date, but excludes the current UTC month. A closed
+month is available only after its monthly ZIP and CHECKSUM are published; missing
+metadata remains an explicit hole. The planner receives a reference UTC date; only
+the CLI defaults to the real UTC clock. A later executor must verify SHA256
 per ZIP, validate CSV schemas/UTC dates/unique keys and the complete kline grid,
 filter monthly fallback records, atomically publish under a lock and retain provenance,
 CSV hash and counts. Existing CSV presence alone must never imply verified completion.
