@@ -1,0 +1,16 @@
+[
+  {
+    "symbol": "BTCUSDT",
+    "type": "bookDepth",
+    "date": "2026-10-08",
+    "source": "https://data.binance.vision/?prefix=data/futures/um/daily/bookDepth/BTCUSDT/",
+    "checked_at": "2026-11-10"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "type": "bookDepth",
+    "date": "2026-10-08",
+    "source": "https://data.binance.vision/?prefix=data/futures/um/daily/bookDepth/ETHUSDT/",
+    "checked_at": "2026-11-10"
+  }
+]

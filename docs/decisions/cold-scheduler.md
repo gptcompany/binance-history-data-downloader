@@ -132,3 +132,14 @@ installer must mask both names, plus monitoring-stack's `binance-sync.service`
 and timer, and drift must verify they are masked and inactive before any download.
 Source retirement alone neither stops nor certifies host state; B5 reconciles it
 only after all migration PRs merge.
+
+## UTC cursor and declared upstream absence
+
+The daily cursor starts explicitly at 2026-06-29 and retries through yesterday UTC.
+Only contiguous settled dates advance it; failed runs or missing closed funding
+months hold it. Funding always starts at May 2026 and excludes the open month.
+`config/unavailable.json` lists only the two verified October 8 bookDepth absences,
+with source and ascertainment date. These remain unavailable, never complete;
+the run counts them separately from new missing files. Later publication restores
+normal validation. Every other missing file blocks progress. Cursor state is strict
+UTC JSON, locked separately and atomically replaced with directory fsync.
