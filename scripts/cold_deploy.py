@@ -1,3 +1,4 @@
+from scripts.cold_snapshot import git_command
 """Pure contract for the owner-managed Binance historical cold scheduler."""
 from datetime import date
 from pathlib import PurePosixPath
@@ -54,7 +55,7 @@ def render_units(config, release):
         bootstrap = ("import subprocess,sys;sys.argv=" +
                      repr(['cold_snapshot', release, sha, action, release]) +
                      ";exec(subprocess.check_output(" +
-                     repr(['git', '-C', release, 'show', sha + ':scripts/cold_snapshot.py']) + "))")
+                     repr(git_command(release, 'show', sha + ':scripts/cold_snapshot.py')) + "))")
         units[name + '.service'] = '\n'.join(header + [
             '', '[Service]', 'Type=oneshot', f"User={config['user']}", 'Environment=TZ=UTC',
             f'ExecStart={release}/.venv/bin/python -I -c "{bootstrap}"',
