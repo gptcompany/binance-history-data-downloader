@@ -12,5 +12,53 @@
     "date": "2026-10-08",
     "source": "https://data.binance.vision/?prefix=data/futures/um/daily/bookDepth/ETHUSDT/",
     "checked_at": "2026-11-10"
+  },
+  {
+    "symbol": "BTCUSDT",
+    "type": "klines",
+    "interval": "1m",
+    "date": "2026-10-28",
+    "source": "https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/1m/BTCUSDT-1m-2026-10-28.zip",
+    "checked_at": "2026-11-10"
+  },
+  {
+    "symbol": "BTCUSDT",
+    "type": "klines",
+    "interval": "5m",
+    "date": "2026-10-28",
+    "source": "https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/5m/BTCUSDT-5m-2026-10-28.zip",
+    "checked_at": "2026-11-10"
+  },
+  {
+    "symbol": "BTCUSDT",
+    "type": "klines",
+    "interval": "15m",
+    "date": "2026-10-28",
+    "source": "https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/15m/BTCUSDT-15m-2026-10-28.zip",
+    "checked_at": "2026-11-10"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "type": "klines",
+    "interval": "1m",
+    "date": "2026-10-28",
+    "source": "https://data.binance.vision/data/futures/um/daily/klines/ETHUSDT/1m/ETHUSDT-1m-2026-10-28.zip",
+    "checked_at": "2026-11-10"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "type": "klines",
+    "interval": "5m",
+    "date": "2026-10-28",
+    "source": "https://data.binance.vision/data/futures/um/daily/klines/ETHUSDT/5m/ETHUSDT-5m-2026-10-28.zip",
+    "checked_at": "2026-11-10"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "type": "klines",
+    "interval": "15m",
+    "date": "2026-10-28",
+    "source": "https://data.binance.vision/data/futures/um/daily/klines/ETHUSDT/15m/ETHUSDT-15m-2026-10-28.zip",
+    "checked_at": "2026-11-10"
   }
 ]

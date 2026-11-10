@@ -70,12 +70,14 @@ def make_plan(start, end, symbols, types, intervals, head=head_size, funding_sta
                     if size is None and not monthly:
                         source = archive_key(symbol, kind, interval, period[:7], True)
                         size = inspect(source)
+                    status = "unpublished"
+                    if size is not None:
+                        status = "pending" if source != key else "available"
                     directory = f"{symbol}/{kind}" + (f"/{interval}" if interval else "")
                     files.append({"symbol": symbol, "type": kind, "interval": interval,
                                   "date": period, "source": source if size is not None else None,
                                   "target": f"{directory}/{key.rsplit('/', 1)[1][:-4]}.csv",
-                                  "bytes": size, "status": "available" if size is not None
-                                  else "unpublished"})
+                                  "bytes": size, "status": status})
                 current = ((current.replace(day=28) + timedelta(days=4)).replace(day=1)
                            if monthly else current + timedelta(days=1))
     sources = {item["source"]: item["bytes"] for item in files if item["source"]}

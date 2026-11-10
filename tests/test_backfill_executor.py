@@ -123,29 +123,49 @@ def test_monthly_source_downloaded_once_for_two_atomic_daily_outputs(tmp_path):
     assert result['complete_days'] == ['2026-10-28', '2026-10-29']
 
 
-def test_monthly_kline_gap_does_not_stop_other_days(tmp_path):
+@pytest.mark.parametrize('gap_status', ['missing', 'unavailable', 'partial'])
+def test_monthly_kline_gap_does_not_stop_other_days(tmp_path, gap_status):
     from backfill import archive_key
+    from backfill_cursor import classify_unavailable
     from backfill_executor import execute_plan
 
     key = archive_key('BTCUSDT', 'klines', '5m', '2026-10', monthly=True)
     rows = []
-    for day in (27, 29):
+    for day in (27, 28, 29) if gap_status == 'partial' else (27, 29):
         start = int(datetime(2026, 10, day, tzinfo=timezone.utc).timestamp() * 1000)
-        for instant in range(start, start + 86400000, 300000):
+        duration = 300000 if day == 28 else 86400000
+        for instant in range(start, start + duration, 300000):
             rows.append(f'{instant},1,1,1,1,1,{instant + 299999},1,1,1,1,0\n')
     payload = zipped([(key.rsplit('/', 1)[-1][:-4] + '.csv', ''.join(rows).encode())])
     plan = make_plan(date(2026, 10, 27), date(2026, 10, 29), ['BTCUSDT'],
                      ['klines'], ['5m'], lambda candidate: (
                          len(payload) if candidate.removesuffix('.CHECKSUM') == key else None),
                      today=date(2026, 11, 10))
+    assert {item['status'] for item in plan['files']} == {'pending'}
+    if gap_status == 'unavailable':
+        classify_unavailable(plan, [dict(symbol='BTCUSDT', type='klines', interval='5m',
+                                        date='2026-10-28', source='https://data.binance.vision/',
+                                        checked_at='2026-11-10')])
     checksum = f"{hashlib.sha256(payload).hexdigest()}  {key.rsplit('/', 1)[-1]}"
     fetch, calls, _ = transport(payload, checksum.encode())
     result = execute_plan(plan, tmp_path, fetch)
 
+    if gap_status == 'partial':
+        assert result['outcome'] == 'failed'
+        assert result['error'] == 'Empty selection or incomplete kline day'
+        assert result['written'] == 1 and result['missing'] == 0
+        assert 'monthly_gaps' not in result
+        return
+
     assert result['outcome'] == 'incomplete'
-    assert result['missing'] == 1 and result['written'] == 2
+    assert result[gap_status] == 1 and result['written'] == 2
     assert result['records'] == 576 and len(calls) == 2
-    assert result['complete_days'] == result['settled_days'] == ['2026-10-27', '2026-10-29']
+    assert result['complete_days'] == ['2026-10-27', '2026-10-29']
+    assert result['settled_days'] == (
+        ['2026-10-27', '2026-10-28', '2026-10-29'] if gap_status == 'unavailable'
+        else result['complete_days'])
+    assert result['monthly_gaps'] == [dict(target=plan['files'][1]['target'], source=key,
+        status=gap_status, reason='No rows for the requested UTC day in the monthly archive')]
     before, gap, after = [tmp_path / item['target'] for item in plan['files']]
     assert before.exists() and after.exists()
     assert not gap.exists() and not gap.with_suffix('.json').exists()

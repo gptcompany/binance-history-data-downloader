@@ -12,11 +12,17 @@ from scripts.cold_host import drift, install
 
 COUNTER = {'type': 'integer', 'minimum': 0}
 DATES = {'type': 'array', 'items': {'type': 'string'}}
+MONTHLY_GAP = {'type': 'object', 'additionalProperties': False,
+               'required': ['target', 'source', 'status', 'reason'],
+               'properties': dict(target={'type': 'string'}, source={'type': 'string'},
+                                  status={'enum': ['missing', 'unavailable']},
+                                  reason={'type': 'string'})}
 RESULT = {'type': 'object', 'additionalProperties': False,
           'required': ['timezone', 'outcome', 'written', 'skipped', 'records', 'missing'],
           'properties': dict(timezone={'const': 'UTC'}, outcome={'enum': ['complete', 'incomplete', 'failed']},
               **{key: COUNTER for key in ('written', 'skipped', 'records', 'missing', 'unavailable')},
               complete_days=DATES, settled_days=DATES, cursor={'type': 'string'},
+              monthly_gaps={'type': 'array', 'items': MONTHLY_GAP},
               cursor_blocked={'type': 'boolean'}, error={'type': 'string'}, finished_at={'type': 'string'})}
 RESULT['properties']['phase'] = {'enum': ['cursor']}
 FILE = {'type': 'object', 'additionalProperties': False,
@@ -24,7 +30,7 @@ FILE = {'type': 'object', 'additionalProperties': False,
         'properties': {**{key: {'type': 'string'} for key in ('symbol', 'type', 'date', 'target')},
                        'interval': {'type': ['string', 'null']}, 'source': {'type': ['string', 'null']},
                        'bytes': {'type': ['integer', 'null'], 'minimum': 1},
-                       'status': {'enum': ['available', 'unpublished']}}}
+                       'status': {'enum': ['available', 'pending', 'unpublished']}}}
 PLAN = {'type': 'object', 'additionalProperties': False,
         'required': ['timezone', 'start', 'end', 'days', 'files', 'archives', 'archive_bytes', 'missing'],
         'properties': dict(timezone={'const': 'UTC'}, start={'type': 'string'}, end={'type': 'string'},

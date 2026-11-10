@@ -12,9 +12,10 @@ from urllib.request import urlopen
 from jsonschema import Draft202012Validator, ValidationError
 
 from backfill_archives import archive_rows, prepare_archive
-from backfill_records import HEADERS
+from backfill_records import EmptySelection, HEADERS
 
 SELECTION = ('symbol', 'type', 'interval', 'date', 'source')
+ABSENCE_ID = ('symbol', 'type', 'interval', 'date')
 HASH = {'type': 'string', 'pattern': '^[0-9a-f]{64}$', 'minLength': 64, 'maxLength': 64}
 PROPERTIES = {key: {'type': 'string'} for key in SELECTION}
 PROPERTIES.update(interval={'type': ['string', 'null']}, timezone={'const': 'UTC'},
@@ -80,6 +81,8 @@ def execute_plan(plan, data_root, fetch=urlopen):
                   missing=plan['missing'], unavailable=plan.get('unavailable', 0),
                   complete_days=[], settled_days=[])
     completed = set()
+    unavailable = {item['target'] for item in plan['files'] if item['status'] == 'unavailable'}
+    known = plan.get('known_absences', ())
     root = Path(data_root)
     try:
         root.mkdir(parents=True, exist_ok=True)
@@ -104,7 +107,21 @@ def execute_plan(plan, data_root, fetch=urlopen):
                         continue
                     archive, digest = prepare_archive(source, pending[0]['bytes'], temporary, fetch)
                     for item in pending:
-                        manifest = publish(root / item['target'], item, archive, digest)
+                        try:
+                            manifest = publish(root / item['target'], item, archive, digest)
+                        except EmptySelection:
+                            if not source.startswith('monthly/') or item['type'] == 'fundingRate':
+                                raise
+                            identity = tuple(item[key] for key in ABSENCE_ID)
+                            status = 'missing'
+                            if identity in known:
+                                status = 'unavailable'
+                                unavailable.add(item['target'])
+                            result[status] += 1
+                            result.setdefault('monthly_gaps', []).append(dict(
+                                target=item['target'], source=source, status=status,
+                                reason='No rows for the requested UTC day in the monthly archive'))
+                            continue
                         result['written'] += 1
                         result['records'] += manifest['rows']
                         completed.add(item['target'])
@@ -115,9 +132,9 @@ def execute_plan(plan, data_root, fetch=urlopen):
                     day[:7] if item['type'] == 'fundingRate' else day)]
                 if all(item['target'] in completed for item in items):
                     result['complete_days'].append(day)
-                if all(item['target'] in completed or item['status'] == 'unavailable' for item in items):
+                if all(item['target'] in completed or item['target'] in unavailable for item in items):
                     result['settled_days'].append(day)
-            result['outcome'] = 'incomplete' if (plan['missing'] or result['unavailable']) else 'complete'
+            result['outcome'] = 'incomplete' if (result['missing'] or result['unavailable']) else 'complete'
     except Exception as error:
         result['error'] = str(error)
     result['finished_at'] = datetime.now(timezone.utc).isoformat()
