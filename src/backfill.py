@@ -85,7 +85,7 @@ def make_plan(start, end, symbols, types, intervals, head=head_size, funding_sta
             "missing": sum(item["status"] == "unpublished" for item in files)}
 
 
-def main(argv=None, head=head_size, today=None):
+def main(argv=None, head=head_size, today=None, fetch=urlopen):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-date", type=date.fromisoformat, required=True)
     parser.add_argument("--end-date", type=date.fromisoformat, required=True)
@@ -93,14 +93,26 @@ def main(argv=None, head=head_size, today=None):
     parser.add_argument("--symbols", default=",".join(SYMBOLS))
     parser.add_argument("--data-types", default=",".join(TYPES))
     parser.add_argument("--intervals", default=",".join(INTERVALS))
-    parser.add_argument("--dry-run", action="store_true", required=True)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--data-root")
     args = parser.parse_args(argv)
-    result = make_plan(args.start_date, args.end_date, args.symbols.split(","),
-                       args.data_types.split(","), args.intervals.split(","), head,
-                       args.funding_start,
-                       today=today if today is not None else datetime.now(timezone.utc).date())
+    if not args.dry_run and not args.data_root:
+        parser.error('--data-root is required for execution')
+    try:
+        result = make_plan(args.start_date, args.end_date, args.symbols.split(","),
+                           args.data_types.split(","), args.intervals.split(","), head,
+                           args.funding_start,
+                           today=today if today is not None else datetime.now(timezone.utc).date())
+        if not args.dry_run:
+            from backfill_executor import execute_plan
+            result = execute_plan(result, args.data_root, fetch)
+    except Exception as error:
+        result = dict(timezone='UTC', outcome='failed', error=str(error), written=0,
+                      skipped=0, records=0, missing=0, complete_days=[],
+                      finished_at=datetime.now(timezone.utc).isoformat())
     print(json.dumps(result, indent=2))
-    return 0
+    return 0 if result.get('outcome', 'complete') == 'complete' else 1
+
 
 
 if __name__ == "__main__":
