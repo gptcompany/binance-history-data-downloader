@@ -1,0 +1,8 @@
+{
+  "image": "ghcr.io/gptcompany/binance-downloader@sha256:c2447ba39f30b7e6ec80bb0e925258d05f9e51998a151255f5cb6ac3f6c70c09",
+  "image_source_sha": "d3e01f4160207a88494021e71b340b805c700b86",
+  "user": "sam",
+  "uid": 1000,
+  "gid": 1000,
+  "cold_root": "/data/cold/12TB/binance-history-data-downloader/data"
+}
