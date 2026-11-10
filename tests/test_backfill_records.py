@@ -10,7 +10,7 @@ MIDNIGHT = int(datetime(2026, 10, 28, tzinfo=timezone.utc).timestamp() * 1000)
 def item(kind, interval=None, monthly=False):
     period = DAY[:7] if monthly else DAY
     return dict(type=kind, interval=interval, symbol='BTCUSDT', date=DAY,
-                source=f"monthly/{kind}/BTCUSDT/BTCUSDT-{interval or kind}-{period}.zip")
+                source=f"{'monthly' if monthly else 'daily'}/{kind}/BTCUSDT/BTCUSDT-{interval or kind}-{period}.zip")
 
 
 def collect(rows, selected):
@@ -98,3 +98,22 @@ def test_funding_is_monthly_and_signed_rate_is_valid():
 @pytest.mark.parametrize('kind', ['trades', 'aggTrades', 'bookDepth', 'metrics', 'fundingRate'])
 def test_empty_archives_do_not_prove_completeness(kind):
     with pytest.raises(ValueError): collect([], item(kind))
+
+
+@pytest.mark.parametrize('row', [
+    ['12', '2', '3', '6', str(MIDNIGHT * 1000), 'true'],
+    ['12', '2', '3', '6', str(MIDNIGHT), 'yes'],
+    ['12', '2', '3', '6', str(MIDNIGHT), 'true', 'extra'],
+])
+def test_trade_units_boolean_and_field_count_are_strict(row):
+    with pytest.raises(ValueError): collect([row], item('trades'))
+
+
+def test_monthly_rows_outside_source_month_are_rejected():
+    rows = [candle(MIDNIGHT - 40 * 86400000)]
+    with pytest.raises(ValueError): collect(rows, item('klines', '15m', monthly=True))
+
+
+def test_metrics_symbol_matches_requested_symbol():
+    row = ['2026-10-28 00:05:00', 'ETHUSDT', '1', '2', '3', '4', '5', '6']
+    with pytest.raises(ValueError): collect([row], item('metrics'))
