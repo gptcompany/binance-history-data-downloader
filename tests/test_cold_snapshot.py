@@ -86,3 +86,14 @@ def test_replace_ref_cannot_substitute_approved_commit(approved):
     replacement = git(repo, 'rev-parse', 'HEAD')
     git(repo, 'replace', sha, replacement)
     assert json.loads(run_approved(repo, sha, ['drift']).stdout)['source'] == 'approved'
+
+
+def test_bootstrap_failure_still_emits_one_final_record(approved, capsys):
+    from scripts.cold_snapshot import main
+    repo, _, _ = approved
+    code = main([str(repo), 'f' * 40, 'drift'])
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 1 and len(lines) == 1
+    record = json.loads(lines[0])
+    assert record['outcome'] == 'failed' and record['phase'] == 'bootstrap'
+    assert record['written'] == 0 and record['counts_status'] == 'not_started'

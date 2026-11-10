@@ -118,3 +118,11 @@ def test_untrusted_child_never_invents_zero_progress(host, capsys, monkeypatch,
     assert code == 1 and record['phase'] == 'container'
     assert record['counts_status'] == status
     assert all(record[key] is None for key in ('written', 'skipped', 'records'))
+
+
+def test_missing_docker_has_explicit_not_started_counts(host, capsys, monkeypatch):
+    def absent(command, kwargs):
+        raise FileNotFoundError('fixture missing Docker')
+    code, record, _ = invoke(host, 'run', capsys, monkeypatch, result=absent)
+    assert code == 1 and record['phase'] == 'container'
+    assert record['counts_status'] == 'not_started' and record['written'] is None
