@@ -1,10 +1,10 @@
-from scripts.cold_snapshot import git_command
 """Pure contract for the owner-managed Binance historical cold scheduler."""
 from datetime import date
 from pathlib import PurePosixPath
 import re
 
 from jsonschema import Draft202012Validator
+from scripts.cold_snapshot import git_command
 
 CONFIG_SCHEMA = {
     "type": "object", "additionalProperties": False,
