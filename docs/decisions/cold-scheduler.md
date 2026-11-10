@@ -89,6 +89,8 @@ the two replacements leaves mismatched provenance; the next run re-verifies.
 A skip requires matching selection/provenance schema and actual CSV SHA256,
 never mere existence. The manifest records source ZIP hash, CSV hash and rows.
 One JSON result reports UTC, outcome and counts; incomplete/unpublished days
-return nonzero and never enter complete_days. Completion covers requested series,
+return nonzero and never enter complete_days. A day also requires each selected
+symbol’s funding target for that UTC month; missing funding in another month
+does not invalidate that day. Completion covers requested series,
 not an independent assertion that Binance published every trade. No scheduler
 activation, image build or real backfill is performed by this change.
