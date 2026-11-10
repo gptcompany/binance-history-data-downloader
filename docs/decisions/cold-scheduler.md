@@ -78,3 +78,12 @@ requiring both planned byte count and hash. Failed staging is removed.
 extracts ZIP paths. Its iterator must be exhausted before publication, including
 ZIP CRC and all source record checks. The executor will own the temporary
 directory and atomic CSV/manifest publication; this library has no CLI caller.
+
+## Legacy owner unit retirement
+
+The repository no longer distributes `deploy/systemd/binance-sync-docker.service`
+or its timer. README instructions now point to the sole cold authority. The final
+installer must mask both names, plus monitoring-stack's `binance-sync.service`
+and timer, and drift must verify they are masked and inactive before any download.
+Source retirement alone neither stops nor certifies host state; B5 reconciles it
+only after all migration PRs merge.
