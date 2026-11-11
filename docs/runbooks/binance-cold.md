@@ -10,10 +10,10 @@ read-only. The only data mount is the inventory's cold `data` directory.
 ## Immutable image provenance
 
 Build-only progressive-deploy run
-[42884609178](https://github.com/gptcompany/progressive-deploy/actions/runs/42884609178)
-succeeded from owner source `d3e01f4160207a88494021e71b340b805c700b86`.
+[42930402297](https://github.com/gptcompany/progressive-deploy/actions/runs/42930402297)
+succeeded from owner source `313f8a87bb7c7a716349e527974d38170b702452`.
 Its published image is
-`ghcr.io/gptcompany/binance-downloader@sha256:c2447ba39f30b7e6ec80bb0e925258d05f9e51998a151255f5cb6ac3f6c70c09`.
+`ghcr.io/gptcompany/binance-downloader@sha256:92cf8a26ccd63a3500de5c453fd5828913b24d36cfe048fe95d78821287d255d`.
 The container runs as UID/GID 1000 (host user sam), with UTC explicit and
 `--pull=never`; B5 must provision that exact image before execution.
 
