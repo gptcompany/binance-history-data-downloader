@@ -67,6 +67,10 @@ def test_late_invalid_record_preserves_existing_csv_and_manifest(tmp_path):
     result = execute_plan(plan, tmp_path, fetch)
     assert result['outcome'] == 'failed' and result['written'] == 0
     assert not result['complete_days'] and target.read_text() == 'legacy-content'
+    assert result['error_target'] == plan['files'][0]['target']
+    assert result['error_source'] == KEY
+    assert result['error_type'] == 'trades'
+    assert result['missing'] == 0
     assert not target.with_suffix('.json').exists()
     assert not list(tmp_path.glob('.backfill-stage-*'))
 
@@ -205,3 +209,46 @@ def test_day_requires_selected_funding_of_same_month_for_every_symbol(tmp_path, 
     result = execute_plan(plan, tmp_path, fetch)
     assert result['outcome'] == ('complete' if missing is None else 'incomplete')
     assert result['complete_days'] == ([] if missing == ('BTCUSDT', '2026-10') else ['2026-10-28'])
+
+
+@pytest.mark.parametrize('case', ['midnight', 'unordered', 'duplicate', 'outside',
+                                  'symbol', 'numeric', 'fields'])
+def test_metrics_publication_and_validation_summary(tmp_path, case):
+    from backfill_executor import execute_plan
+    from backfill_records import HEADERS
+
+    times = ['00:40:00', '00:05:00', '00:10:00'] if case == 'unordered' else ['00:00:00']
+    if case == 'duplicate':
+        times = ['00:05:00', '00:10:00', '00:05:00']
+    rows = [[f'2026-10-28 {instant}', 'BTCUSDT', '1', '2', '3', '4', '5', '6']
+            for instant in times]
+    if case == 'outside': rows[0][0] = '2026-10-29 00:00:00'
+    if case == 'symbol': rows[0][1] = 'ETHUSDT'
+    if case == 'numeric': rows[0][2] = 'NaN'
+    if case == 'fields': rows[0].pop()
+    key = 'daily/metrics/BTCUSDT/BTCUSDT-metrics-2026-10-28.zip'
+    name = key.rsplit('/', 1)[-1]
+    data = '\n'.join(','.join(row) for row in [HEADERS['metrics'], *rows]) + '\n'
+    payload = zipped([(name[:-4] + '.csv', data.encode())])
+    plan = make_plan(date(2026, 10, 28), date(2026, 10, 28), ['BTCUSDT'],
+                     ['metrics'], ['1m'], lambda _: len(payload), today=date(2026, 11, 10))
+    checksum = f'{hashlib.sha256(payload).hexdigest()}  {name}'.encode()
+    fetch, calls, _ = transport(payload, checksum)
+    result = execute_plan(plan, tmp_path, fetch)
+    target = tmp_path / plan['files'][0]['target']
+
+    if case in ('midnight', 'unordered'):
+        assert result['outcome'] == 'complete', result
+        with target.open() as stream:
+            published = list(csv.reader(stream))
+        assert published == [list(HEADERS['metrics']), *sorted(rows)]
+        assert result['records'] == len(rows) and result['written'] == 1
+        manifest = json.loads(target.with_suffix('.json').read_text())
+        assert manifest['csv_sha256'] == hashlib.sha256(target.read_bytes()).hexdigest()
+    else:
+        assert result['outcome'] == 'failed'
+        assert result['error_target'] == plan['files'][0]['target']
+        assert result['error_source'] == key and result['error_type'] == 'metrics'
+        assert result['written'] == 0 and result['missing'] == 0
+        assert not target.exists() and not target.with_suffix('.json').exists()
+    assert len(calls) == 2

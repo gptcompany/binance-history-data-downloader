@@ -56,7 +56,7 @@ def test_corrupt_or_incomplete_klines_are_never_complete(mutation):
     ('trades', ['12', '2', '3', '6', str(MIDNIGHT), 'true']),
     ('aggTrades', ['12', '2', '3', '10', '11', str(MIDNIGHT), 'false']),
     ('bookDepth', ['2026-10-28 00:00:04', '-1', '3', '6']),
-    ('metrics', ['2026-10-29 00:00:00', 'BTCUSDT', '1', '2', '3', '4', '5', '6']),
+    ('metrics', ['2026-10-28 00:00:00', 'BTCUSDT', '1', '2', '3', '4', '5', '6']),
 ])
 def test_observed_daily_schemas_and_utc_boundaries(kind, row):
     assert collect([row], item(kind)) == [row]
@@ -64,13 +64,14 @@ def test_observed_daily_schemas_and_utc_boundaries(kind, row):
         collect([row, row], item(kind))
 
 
-def test_metrics_right_closed_boundary_and_monthly_filter():
+def test_metrics_left_closed_boundary_and_monthly_filter():
     rows = [['2026-10-28 00:00:00', 'BTCUSDT', '1', '2', '3', '4', '5', '6'],
             ['2026-10-28 00:05:00', 'BTCUSDT', '1', '2', '3', '4', '5', '6'],
             ['2026-10-29 00:00:00', 'BTCUSDT', '1', '2', '3', '4', '5', '6']]
-    assert collect(rows, item('metrics', monthly=True)) == rows[1:]
+    assert collect(rows, item('metrics', monthly=True)) == rows[:2]
+    assert collect([rows[0]], item('metrics')) == [rows[0]]
     with pytest.raises(ValueError):
-        collect([rows[0]], item('metrics'))
+        collect([rows[-1]], item('metrics'))
 
 
 @pytest.mark.parametrize('row', [
@@ -117,3 +118,31 @@ def test_monthly_rows_outside_source_month_are_rejected():
 def test_metrics_symbol_matches_requested_symbol():
     row = ['2026-10-28 00:05:00', 'ETHUSDT', '1', '2', '3', '4', '5', '6']
     with pytest.raises(ValueError): collect([row], item('metrics'))
+
+
+@pytest.mark.parametrize('kind,rows', [
+    ('trades', [['2', '2', '3', '6', str(MIDNIGHT + 1), 'true'],
+                ['3', '2', '3', '6', str(MIDNIGHT), 'true']]),
+    ('aggTrades', [['2', '2', '3', '1', '2', str(MIDNIGHT + 1), 'true'],
+                   ['3', '2', '3', '3', '4', str(MIDNIGHT), 'true']]),
+    ('bookDepth', [['2026-10-28 00:05:00', '1', '2', '3'],
+                   ['2026-10-28 00:04:00', '2', '2', '3']]),
+    ('fundingRate', [[str(MIDNIGHT + 1), '8', '0.001'],
+                     [str(MIDNIGHT), '8', '0.001']]),
+])
+def test_non_metrics_still_reject_unordered_timestamps(kind, rows):
+    with pytest.raises(ValueError, match='Unordered timestamps'):
+        collect(rows, item(kind))
+
+
+def test_metrics_sorts_by_parsed_create_time():
+    rows = [[instant, 'BTCUSDT', '1', '2', '3', '4', '5', '6'] for instant in
+            ['2026-10-28 00:40:00', '2026-10-28T00:05:00Z', '2026-10-28 00:10:00']]
+    assert collect(rows, item('metrics')) == [rows[1], rows[2], rows[0]]
+
+
+def test_metrics_nonadjacent_duplicate_instants_remain_invalid():
+    rows = [[instant, 'BTCUSDT', '1', '2', '3', '4', '5', '6'] for instant in
+            ['2026-10-28 00:05:00', '2026-10-28 00:10:00', '2026-10-28T00:05:00Z']]
+    with pytest.raises(ValueError):
+        collect(rows, item('metrics'))
