@@ -23,6 +23,7 @@ RESULT = {'type': 'object', 'additionalProperties': False,
               **{key: COUNTER for key in ('written', 'skipped', 'records', 'missing', 'unavailable')},
               complete_days=DATES, settled_days=DATES, cursor={'type': 'string'},
               monthly_gaps={'type': 'array', 'items': MONTHLY_GAP},
+              **{key: {'type': ['string', 'null']} for key in ('error_target', 'error_source', 'error_type')},
               cursor_blocked={'type': 'boolean'}, error={'type': 'string'}, finished_at={'type': 'string'})}
 RESULT['properties']['phase'] = {'enum': ['cursor']}
 FILE = {'type': 'object', 'additionalProperties': False,
