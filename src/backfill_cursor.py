@@ -10,14 +10,18 @@ from tempfile import NamedTemporaryFile
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 
 from backfill import INTERVALS, SYMBOLS, TYPES, make_plan
-from backfill_executor import execute_plan
+from backfill_executor import ABSENCE_ID, execute_plan
 
 DATE = {'type': 'string', 'format': 'date'}
 ABSENCES = {'type': 'array', 'uniqueItems': True, 'items': {
     'type': 'object', 'additionalProperties': False,
     'required': ['symbol', 'type', 'date', 'source', 'checked_at'], 'properties': {
-        'symbol': {'enum': list(SYMBOLS)}, 'type': {'const': 'bookDepth'},
-        'date': DATE, 'checked_at': DATE, 'source': {'type': 'string', 'format': 'uri'}}}}
+        'symbol': {'enum': list(SYMBOLS)}, 'type': {'enum': ['bookDepth', 'klines']},
+        'interval': {'enum': list(INTERVALS)},
+        'date': DATE, 'checked_at': DATE, 'source': {'type': 'string', 'format': 'uri'}},
+    'if': {'properties': {'type': {'const': 'klines'}}},
+    'then': {'required': ['interval']},
+    'else': {'not': {'required': ['interval']}}}}
 CURSOR = {'type': 'object', 'additionalProperties': False,
           'required': ['timezone', 'next_date'],
           'properties': {'timezone': {'const': 'UTC'}, 'next_date': DATE}}
@@ -32,11 +36,12 @@ def validate(schema, value):
 
 def classify_unavailable(plan, entries):
     validate(ABSENCES, entries)
-    known = {(entry['symbol'], entry['type'], entry['date']) for entry in entries}
+    known = {tuple(entry.get(key) for key in ABSENCE_ID) for entry in entries}
     if len(known) != len(entries):
         raise ValueError('Duplicate absence identity')
+    plan['known_absences'] = known
     for item in plan['files']:
-        if item['source'] is None and (item['symbol'], item['type'], item['date']) in known:
+        if item['source'] is None and tuple(item[key] for key in ABSENCE_ID) in known:
             item['status'] = 'unavailable'
     plan['missing'] = sum(item['status'] == 'unpublished' for item in plan['files'])
     plan['unavailable'] = sum(item['status'] == 'unavailable' for item in plan['files'])
@@ -104,7 +109,8 @@ def main(argv=None, today=None):
                 day = date.fromisoformat(entry['date'])
                 if day < start and day <= end:
                     retry = make_plan(day, day, (entry['symbol'],), (entry['type'],),
-                                      INTERVALS, today=today)
+                                      (entry['interval'],) if 'interval' in entry else INTERVALS,
+                                      today=today)
                     for item in retry['files']:
                         if item['target'] not in targets:
                             plan['files'].append(item)

@@ -18,6 +18,10 @@ HEADERS['markPriceKlines'] = HEADERS['klines']
 UTC = timezone.utc
 
 
+class EmptySelection(ValueError):
+    """No rows belong to the requested UTC period."""
+
+
 def bounds(period):
     start = datetime.fromisoformat(period + ('-01' if len(period) == 7 else '')).replace(tzinfo=UTC)
     end = ((start.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -106,5 +110,7 @@ def validated_rows(rows, item):
                 raise ValueError('Gap in selected kline grid')
             count += 1
             yield row
-    if not count or (candle and count != 86400000 // step):
+    if not count:
+        raise EmptySelection('Empty selection or incomplete kline day')
+    if candle and count != 86400000 // step:
         raise ValueError('Empty selection or incomplete kline day')

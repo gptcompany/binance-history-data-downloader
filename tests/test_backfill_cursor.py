@@ -113,6 +113,32 @@ def test_late_publication_is_recovered_after_cursor_passed_absence(tmp_path, mon
     assert target.exists() and target.with_suffix('.json').exists()
 
 
+def test_cursor_retries_every_declared_kline_interval(tmp_path, monkeypatch, capsys):
+    import backfill_cursor as cursor
+    requests = []
+
+    def head(key):
+        requests.append(key)
+        return None
+
+    make_plan = cursor.make_plan
+    monkeypatch.setattr(cursor, 'make_plan', lambda *args, **kwargs: (
+        make_plan(*args, head=head, **kwargs)))
+    (tmp_path / '.cold-cursor.json').write_text(
+        '{"timezone":"UTC","next_date":"2026-10-29"}')
+    argv = ['--initial-date', '2026-10-28', '--data-root', str(tmp_path)]
+    for _ in range(2):
+        requests.clear()
+        assert cursor.main(argv, today=date(2026, 10, 29)) == 1
+        result = json.loads(capsys.readouterr().out)
+        assert result['unavailable'] == 8 and result['missing'] == 0
+        assert result['cursor'] == '2026-10-29'
+        daily_klines = [key for key in requests if key.startswith('daily/klines/')]
+        assert sorted(daily_klines) == sorted(
+            f'daily/klines/{symbol}/{interval}/{symbol}-{interval}-2026-10-28.zip'
+            for symbol in ('BTCUSDT', 'ETHUSDT') for interval in ('1m', '5m', '15m'))
+
+
 def test_cursor_persistence_failure_preserves_published_counts(tmp_path, monkeypatch, capsys):
     import backfill_cursor as cursor
     monkeypatch.setattr(cursor, 'make_plan', lambda *args, **kwargs: dict(files=[], missing=0))

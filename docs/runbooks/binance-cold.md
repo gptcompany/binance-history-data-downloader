@@ -49,10 +49,12 @@ trades/aggTrades/bookDepth/metrics, plus closed funding months since May 2026.
 
 Every archive requires the published CHECKSUM, exact compressed size, SHA256,
 ZIP CRC, strict CSV schema, ordered unique keys and UTC source-period validation.
-Klines additionally require a complete interval grid. October 28 monthly
-fallbacks validate their entire archive before selecting daily rows. The two
-October 8 bookDepth absences remain declared unavailable and never complete;
-new missing files block the cursor. Subsequent runs retry declared absences.
+Klines additionally require a complete interval grid. Dry-run marks monthly
+fallbacks pending until execution validates the archive and checks for the UTC
+day. An absent day is reported in `monthly_gaps` and the run continues with
+outcome `incomplete`. New missing files block the cursor. The inventory declares
+the October 8 bookDepth and October 28 BTCUSDT/ETHUSDT kline absences, which
+can settle the cursor and are retried on subsequent runs.
 A filesystem lock, atomic CSV/manifest replacement and provenance plus actual
 CSV hash checks make reruns idempotent; existing CSV presence alone cannot skip.
 
