@@ -14,6 +14,11 @@ def test_versioned_inventory_is_the_complete_cold_deployment_source():
         'type=bind,src=/data/cold/12TB/binance-history-data-downloader/data,dst=/data')
     assert command[command.index('--entrypoint') + 1] == 'python'
     assert '--pull=never' in command and command[-1] == '--dry-run'
+    assert (
+        'ghcr.io/gptcompany/binance-downloader'
+        '@sha256:92cf8a26ccd63a3500de5c453fd5828913b24d36cfe048fe95d78821287d255d'
+    ) in command
+    assert config['image_source_sha'] == '313f8a87bb7c7a716349e527974d38170b702452'
     units = render_units(config, '/opt/binance-cold/' + config['image_source_sha'])
     assert len(units) == 4
     assert '03:30:00 UTC' in units['binance-cold.timer']
