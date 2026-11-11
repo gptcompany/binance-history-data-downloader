@@ -1,6 +1,6 @@
 {
-  "image": "ghcr.io/gptcompany/binance-downloader@sha256:92cf8a26ccd63a3500de5c453fd5828913b24d36cfe048fe95d78821287d255d",
-  "image_source_sha": "313f8a87bb7c7a716349e527974d38170b702452",
+  "image": "ghcr.io/gptcompany/binance-downloader@sha256:beca5d7b878a0e0889014080cbd4a47dccc4a46970b43cec1ff5f0e2ab6a34cf",
+  "image_source_sha": "d979c2c47d9a87f5e7d17a9a9ecc45299d836270",
   "user": "sam",
   "uid": 1000,
   "gid": 1000,

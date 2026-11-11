@@ -16,9 +16,9 @@ def test_versioned_inventory_is_the_complete_cold_deployment_source():
     assert '--pull=never' in command and command[-1] == '--dry-run'
     assert (
         'ghcr.io/gptcompany/binance-downloader'
-        '@sha256:92cf8a26ccd63a3500de5c453fd5828913b24d36cfe048fe95d78821287d255d'
+        '@sha256:beca5d7b878a0e0889014080cbd4a47dccc4a46970b43cec1ff5f0e2ab6a34cf'
     ) in command
-    assert config['image_source_sha'] == '313f8a87bb7c7a716349e527974d38170b702452'
+    assert config['image_source_sha'] == 'd979c2c47d9a87f5e7d17a9a9ecc45299d836270'
     units = render_units(config, '/opt/binance-cold/' + config['image_source_sha'])
     assert len(units) == 4
     assert '03:30:00 UTC' in units['binance-cold.timer']
