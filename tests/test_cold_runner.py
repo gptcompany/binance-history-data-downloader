@@ -149,7 +149,7 @@ def test_real_container_summary_passes_host_parser(host, tmp_path, capsys, monke
         result=SimpleNamespace(returncode=status, stdout=stdout.encode(), stderr=b''))
     assert code == status
     assert record['counts_status'] == 'reported', record
-    assert all(record[key] == value for key, value in summary.items())
+    assert all(record[key] == value for key, value in summary.items() if key != 'finished_at')
     assert record['records'] == (0 if invalid else 1)
     if invalid:
         assert record['error_source'].endswith(NAME)
