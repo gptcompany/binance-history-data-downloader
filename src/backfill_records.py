@@ -1,4 +1,4 @@
-"""Strict streaming USD-M validation; exhaust the iterator before publishing CSV."""
+"""Strict USD-M validation; exhaust the iterator before publishing CSV."""
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -41,8 +41,9 @@ def timestamp(value, textual=False):
 def validated_rows(rows, item):
     """Validate every source record, yield only selected UTC day/month without header.
 
-    Metrics archives cover (start, end]; other types cover [start, end).
-    Uniqueness uses monotonic IDs/times and a bounded set of depth percentages
+    All archives cover [start, end). Metrics are buffered and sorted by UTC
+    create_time, rejecting duplicate instants even when nonadjacent. Other
+    types use monotonic IDs/times and a bounded set of depth percentages
     at the current timestamp, avoiding a set of all historical trade IDs.
     """
     kind, interval = item['type'], item['interval']
@@ -56,6 +57,7 @@ def validated_rows(rows, item):
     source_start, source_end = bounds(name[len(prefix):-4])
     target_start, target_end = bounds(item['date'])
     previous_time, previous_key, percentages, count = None, None, set(), 0
+    metrics = {}
     for index, row in enumerate(rows):
         if index == 0 and tuple(row) == columns:
             continue
@@ -64,11 +66,9 @@ def validated_rows(rows, item):
         textual = kind in ('bookDepth', 'metrics')
         time_index = 4 if kind == 'trades' else 5 if kind == 'aggTrades' else 0
         instant = timestamp(row[time_index], textual)
-        in_range = lambda start, end: (start < instant <= end if kind == 'metrics'
-                                       else start <= instant < end)
-        if not in_range(source_start, source_end):
+        if not source_start <= instant < source_end:
             raise ValueError('Record outside source UTC period')
-        if previous_time is not None and instant < previous_time:
+        if kind != 'metrics' and previous_time is not None and instant < previous_time:
             raise ValueError('Unordered timestamps')
         excluded = {time_index} | ({1} if kind == 'metrics' else set())
         if kind in ('trades', 'aggTrades'):
@@ -99,18 +99,27 @@ def validated_rows(rows, item):
             if percentage in percentages:
                 raise ValueError('Duplicate depth key')
             percentages.add(percentage)
+        elif kind == 'metrics':
+            if instant in metrics:
+                raise ValueError('Duplicate metrics create_time')
+            metrics[instant] = row
         elif previous_key is not None and key <= previous_key:
             raise ValueError('Duplicate or unordered record key')
         if candle and (int(row[0]) % step or int(row[6]) != int(row[0]) + step - 1
                        or int(row[8]) < 0):
             raise ValueError('Invalid kline grid or close time')
         previous_time, previous_key = instant, key
-        if in_range(target_start, target_end):
+        if target_start <= instant < target_end:
             if candle and instant != target_start + timedelta(milliseconds=count * step):
                 raise ValueError('Gap in selected kline grid')
             count += 1
-            yield row
+            if kind != 'metrics':
+                yield row
     if not count:
         raise EmptySelection('Empty selection or incomplete kline day')
     if candle and count != 86400000 // step:
         raise ValueError('Empty selection or incomplete kline day')
+    if kind == 'metrics':
+        for instant in sorted(metrics):
+            if target_start <= instant < target_end:
+                yield metrics[instant]

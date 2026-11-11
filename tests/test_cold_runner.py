@@ -126,3 +126,41 @@ def test_missing_docker_has_explicit_not_started_counts(host, capsys, monkeypatc
     code, record, _ = invoke(host, 'run', capsys, monkeypatch, result=absent)
     assert code == 1 and record['phase'] == 'container'
     assert record['counts_status'] == 'not_started' and record['written'] is None
+
+
+@pytest.mark.parametrize('invalid', [False, True])
+def test_real_container_summary_passes_host_parser(host, tmp_path, capsys, monkeypatch, invalid):
+    from backfill import main
+    from test_backfill_archives import CSV, NAME, transport, zipped
+
+    data = CSV.replace(b'true', b'invalid') if invalid else CSV
+    payload = zipped([(NAME[:-4] + '.csv', data)])
+    fetch, _, _ = transport(payload)
+    status = main(['--start-date', '2026-10-28', '--end-date', '2026-10-28',
+                   '--symbols', 'BTCUSDT', '--data-types', 'trades',
+                   '--data-root', str(tmp_path / 'data')],
+                  head=lambda _: len(payload), today=date(2026, 11, 10), fetch=fetch)
+    stdout = capsys.readouterr().out
+    summary = json.loads(stdout)
+    assert status == int(invalid)
+    assert summary['outcome'] == ('failed' if invalid else 'complete')
+    code, record, _ = invoke(host, 'backfill', capsys, monkeypatch,
+        extra=('--start-date', '2026-10-28', '--end-date', '2026-10-28'),
+        result=SimpleNamespace(returncode=status, stdout=stdout.encode(), stderr=b''))
+    assert code == status
+    assert record['counts_status'] == 'reported', record
+    assert all(record[key] == value for key, value in summary.items() if key != 'finished_at')
+    assert record['records'] == (0 if invalid else 1)
+    if invalid:
+        assert record['error_source'].endswith(NAME)
+        assert record['error_type'] == 'trades'
+
+
+@pytest.mark.parametrize('field', ['error_target', 'error_source', 'error_type'])
+@pytest.mark.parametrize('value', [None, 'fixture', 1, False, [], {}])
+def test_error_context_schema_is_nullable_string(field, value):
+    from jsonschema import Draft202012Validator
+    from scripts.cold_runner import RESULT
+
+    validator = Draft202012Validator(RESULT['properties'][field])
+    assert validator.is_valid(value) == (value is None or isinstance(value, str))

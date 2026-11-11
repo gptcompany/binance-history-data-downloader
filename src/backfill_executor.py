@@ -80,6 +80,7 @@ def execute_plan(plan, data_root, fetch=urlopen):
     result = dict(timezone='UTC', outcome='failed', written=0, skipped=0, records=0,
                   missing=plan['missing'], unavailable=plan.get('unavailable', 0),
                   complete_days=[], settled_days=[])
+    active_item = None
     completed = set()
     unavailable = {item['target'] for item in plan['files'] if item['status'] == 'unavailable'}
     known = plan.get('known_absences', ())
@@ -105,8 +106,10 @@ def execute_plan(plan, data_root, fetch=urlopen):
                             completed.add(item['target'])
                     if not pending:
                         continue
+                    active_item = pending[0]
                     archive, digest = prepare_archive(source, pending[0]['bytes'], temporary, fetch)
                     for item in pending:
+                        active_item = item
                         try:
                             manifest = publish(root / item['target'], item, archive, digest)
                         except EmptySelection:
@@ -126,6 +129,7 @@ def execute_plan(plan, data_root, fetch=urlopen):
                         result['records'] += manifest['rows']
                         completed.add(item['target'])
                     archive.unlink()
+                    active_item = None
             days = {item['date'] for item in plan['files'] if item['type'] != 'fundingRate'}
             for day in sorted(days):
                 items = [item for item in plan['files'] if item['date'] == (
@@ -137,5 +141,8 @@ def execute_plan(plan, data_root, fetch=urlopen):
             result['outcome'] = 'incomplete' if (result['missing'] or result['unavailable']) else 'complete'
     except Exception as error:
         result['error'] = str(error)
+        if active_item is not None:
+            result.update(error_target=active_item['target'], error_source=active_item['source'],
+                          error_type=active_item['type'])
     result['finished_at'] = datetime.now(timezone.utc).isoformat()
     return result
