@@ -86,5 +86,15 @@ pass while establishing the availability baseline. At cutoff, the JSON includes
 `unresolved_targets` for the probed range and monthly empty selections;
 historical declared absences remain in the separate `unavailable` counter;
 exit 1 remains a systemd failure. Container, schema and non-publication errors
-fail immediately. An in-flight download finishes normally; no new download
-starts after 14:00. The existing immutable image remains unchanged.
+fail immediately. An in-flight download finishes normally; no polling replay
+starts at or after 14:00. A manual start or persistent timer catch-up at or after
+14:00 still attempts D-1 once and returns immediately, with exit 1 if incomplete;
+it never silently skips the day. The existing immutable image remains unchanged.
+
+The final JSON keeps `written` cumulative across cursor passes. `skipped` and
+`records` describe the last pass; `attempt_totals` sums `written`, `skipped` and
+`records` across every validated pass, including repeated verification of the same
+files (include le riverifiche). These are operation counts, not distinct files or
+rows. `missing`, `unavailable`, cursor and outcome always describe the latest
+state, so the two declared bookDepth absences remain visible without multiplying
+them by the number of passes.

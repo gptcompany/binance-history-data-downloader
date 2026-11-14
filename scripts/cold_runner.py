@@ -28,6 +28,10 @@ RESULT = {'type': 'object', 'additionalProperties': False,
               cursor_blocked={'type': 'boolean'}, error={'type': 'string'}, finished_at={'type': 'string'})}
 RESULT['properties']['phase'] = {'enum': ['cursor']}
 RESULT['properties']['unresolved_targets'] = DATES
+RESULT['properties']['attempt_totals'] = {
+    'type': 'object', 'additionalProperties': False,
+    'required': ['written', 'skipped', 'records'],
+    'properties': {key: COUNTER for key in ('written', 'skipped', 'records')}}
 FILE = {'type': 'object', 'additionalProperties': False,
         'required': ['symbol', 'type', 'interval', 'date', 'source', 'target', 'bytes', 'status'],
         'properties': {**{key: {'type': 'string'} for key in ('symbol', 'type', 'date', 'target')},
@@ -47,7 +51,27 @@ def run_daily(command, *, now=None, sleep=time.sleep):
     started = now()
     deadline = started.replace(hour=14, minute=0, second=0, microsecond=0)
     end = (started.date() - timedelta(days=1)).isoformat()
-    child = subprocess.run(command, capture_output=True, check=False)
+    totals = dict(written=0, skipped=0, records=0)
+
+    def download():
+        child = subprocess.run(command, capture_output=True, check=False)
+        try:
+            payload = json.loads(child.stdout)
+        except (ValueError, UnicodeError):
+            return child
+        if (not Draft202012Validator(RESULT).is_valid(payload)
+                or child.returncode != (0 if payload['outcome'] == 'complete' else 1)):
+            return child
+        for key in totals:
+            totals[key] += payload[key]
+        payload.update(written=totals['written'], attempt_totals=dict(totals))
+        return subprocess.CompletedProcess(command, child.returncode,
+                                           json.dumps(payload).encode(), child.stderr)
+
+    child = download()
+    # Persistent timer catch-up still attempts D-1 once, without polling.
+    if started >= deadline:
+        return child
     seen = set()
     plan = None
 
@@ -78,7 +102,7 @@ def run_daily(command, *, now=None, sleep=time.sleep):
             break
         if available - seen:
             sys.stderr.buffer.write(child.stderr)
-            child = subprocess.run(command, capture_output=True, check=False)
+            child = download()
             summary = pending(child)
             if summary is None:
                 return child
