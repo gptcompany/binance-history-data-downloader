@@ -55,7 +55,6 @@ class CycleState:
     child: object = None
     plan: dict | None = None
     seen: set = field(default_factory=set)
-    totals: dict = field(default_factory=lambda: dict(written=0, skipped=0, records=0))
 
     def download(self, command):
         self.child = subprocess.run(command, capture_output=True, check=False)
@@ -68,13 +67,14 @@ class CycleState:
             if self.payload is not None:
                 raise ValueError('Invalid cursor result') from error
             return
-        for key in self.totals:
-            self.totals[key] += payload[key]
-        self.payload = payload
+        previous = self.payload['attempt_totals'] if self.payload else {}
+        totals = {key: previous.get(key, 0) + payload[key]
+                  for key in ('written', 'skipped', 'records')}
+        # Publish counts and last-pass metadata together, never partial totals.
+        self.payload = dict(payload, written=totals['written'], attempt_totals=totals)
 
     def finish(self, command):
         if self.payload is not None:
-            self.payload.update(written=self.totals['written'], attempt_totals=dict(self.totals))
             self.child = subprocess.CompletedProcess(command,
                 int(self.payload['outcome'] != 'complete'),
                 json.dumps(self.payload).encode(), self.child.stderr if self.child else b'')
