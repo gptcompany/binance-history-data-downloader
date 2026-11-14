@@ -28,7 +28,7 @@ approved release and its Python environment; it does not activate anything.
 Use the approved Git-object bootstrap below for `install RELEASE`, then reconcile
 systemd loaded state, the four legacy masks and the two new persistent timers.
 Installation alone never reloads, enables, starts or stops units. Drift must pass
-before enabling `binance-cold.timer` (03:30 UTC) and
+before enabling `binance-cold.timer` (06:30 UTC) and
 `binance-cold-drift.timer` (03:00 UTC). The latter never downloads.
 No live component runs on this Dell.
 
@@ -68,3 +68,43 @@ loaded manager properties and inactive masked legacy schedulers. Investigate any
 finding before further runs. Rollback requires a reviewed owner/inventory SHA
 change and operator reconciliation; do not edit host configuration independently
 or delete cold data to roll back code.
+
+
+## Daily publication window
+
+The target remains yesterday (D-1), never D-2. Start at 06:30 UTC and poll
+HEAD plus CHECKSUM metadata every 15 minutes until 14:00 UTC, as directed by
+the operator. On 2026-11-13, ETHUSDT November 12 metrics were published at
+06:42:05 UTC, bookDepth at 07:20:36 and 1m klines at 07:59:05; the old 03:30
+schedule preceded all three. Binance documents next-day daily publication,
+without promising an hour: https://github.com/binance/binance-public-data.
+
+The host reuses the pinned image's dry-run planner and cursor. New available
+archives trigger an idempotent download immediately; unchanged plans cause only
+metadata probes. The initial incomplete run can receive one additional verified
+pass while establishing the availability baseline. At cutoff, the JSON includes
+`unresolved_targets` for the probed range and monthly empty selections;
+historical declared absences remain in the separate `unavailable` counter;
+exit 1 remains a systemd failure. Container, schema and non-publication errors
+fail immediately. An in-flight download finishes normally; no polling replay
+starts at or after 14:00. A manual start or persistent timer catch-up at or after
+14:00 still attempts D-1 once and returns immediately, with exit 1 if incomplete;
+it never silently skips the day. The existing immutable image remains unchanged.
+
+The final JSON keeps `written` cumulative across cursor passes. `skipped` and
+`records` describe the last pass; `attempt_totals` sums `written`, `skipped` and
+`records` across every validated pass, including repeated verification of the same
+files (include le riverifiche). These are operation counts, not distinct files or
+rows. `missing`, `unavailable`, cursor and outcome always describe the latest
+state, so the two declared bookDepth absences remain visible without multiplying
+them by the number of passes.
+
+
+The host owns one daily cycle state and finalizes its summary in `finally`.
+A failed/invalid metadata probe, invalid cursor replay, exception, SIGINT or
+SIGTERM preserves counters from every validated cursor pass and exits failed.
+`final_state_status=unknown` marks that the final filesystem state could not be
+confirmed; missing/unavailable and last-pass counts remain the last validated
+observations, while `attempt_totals` retains all validated attempts. Probe error
+JSON contributes no counts. Before any validated pass, existing unknown or
+not-started count semantics apply. SIGKILL cannot produce a process summary.

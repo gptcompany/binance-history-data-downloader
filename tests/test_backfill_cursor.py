@@ -155,3 +155,33 @@ def test_cursor_persistence_failure_preserves_published_counts(tmp_path, monkeyp
     record = json.loads(lines[0])
     assert record['written'] == 2 and record['skipped'] == 3 and record['records'] == 5
     assert record['outcome'] == 'failed' and record['phase'] == 'cursor'
+
+
+@pytest.mark.parametrize('missing,expected', [(0, 0), (1, 1)])
+def test_daily_run_keeps_yesterday_as_its_target(
+        tmp_path, monkeypatch, capsys, missing, expected):
+    import backfill_cursor as cursor
+    calls = []
+    real_plan = cursor.make_plan
+
+    def plan(start, end, *args, **kwargs):
+        calls.append((start, end))
+        return real_plan(start, end, ('ETHUSDT',), ('metrics',), ('1m',),
+                         head=lambda key: None, today=kwargs['today'])
+
+    def execute(plan, root):
+        # Isolate calendar eligibility from archive decoding. A mature gap
+        # must still reach the existing nonzero outcome boundary.
+        return dict(timezone='UTC', outcome='incomplete' if missing else 'complete',
+                    written=0, skipped=0, records=0, missing=missing, unavailable=0,
+                    settled_days=[] if missing else ['2026-11-11', '2026-11-12'], complete_days=[])
+
+    monkeypatch.setattr(cursor, 'make_plan', plan)
+    monkeypatch.setattr(cursor, 'execute_plan', execute)
+    (tmp_path / '.cold-cursor.json').write_text(
+        '{"timezone":"UTC","next_date":"2026-11-11"}')
+    assert cursor.main(['--initial-date', '2026-11-11', '--data-root', str(tmp_path)],
+                       today=date(2026, 11, 13)) == expected
+    result = json.loads(capsys.readouterr().out)
+    assert calls[0] == (date(2026, 11, 11), date(2026, 11, 12))
+    assert result['cursor'] == ('2026-11-11' if missing else '2026-11-13')

@@ -164,3 +164,283 @@ def test_error_context_schema_is_nullable_string(field, value):
 
     validator = Draft202012Validator(RESULT['properties'][field])
     assert validator.is_valid(value) == (value is None or isinstance(value, str))
+
+
+def test_daily_poll_downloads_new_sources_without_replaying_unchanged_plan(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 13, 6, 30, tzinfo=timezone.utc)]
+    sleeps, commands = [], []
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += timedelta(seconds=seconds)
+    def payload(outcome, missing):
+        return dict(timezone='UTC', outcome=outcome, written=0, skipped=0, records=0,
+                    missing=missing, unavailable=0, cursor='2026-11-12')
+    def plan(available):
+        return dict(timezone='UTC', start='2026-11-12', end='2026-11-12', days=1,
+            archives=len(available), archive_bytes=len(available), missing=2-len(available),
+            files=[dict(symbol='ETHUSDT', type=kind, interval=None, date='2026-11-12',
+                target=kind+'.csv', source=kind if kind in available else None,
+                bytes=1 if kind in available else None,
+                status='available' if kind in available else 'unpublished')
+                for kind in ('metrics', 'bookDepth')])
+    responses = iter([payload('incomplete', 2), plan(()), plan(('metrics',)),
+        payload('incomplete', 1), plan(('metrics',)), plan(('metrics', 'bookDepth')),
+        payload('complete', 0)])
+    def execute(command, **kwargs):
+        commands.append(command)
+        value = next(responses)
+        return SimpleNamespace(stdout=json.dumps(value), stderr=b'',
+            returncode=0 if 'outcome' not in value or value['outcome']=='complete' else 1)
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+                                  now=lambda: clock[0], sleep=sleep)
+    assert result.returncode == 0
+    assert sleeps == [900, 900, 900]
+    assert sum('/app/src/backfill_cursor.py' in cmd for cmd in commands) == 3
+    probes = [cmd for cmd in commands if '--dry-run' in cmd]
+    assert len(probes) == 4
+    assert all(cmd[cmd.index('--end-date')+1] == '2026-11-12' for cmd in probes)
+
+
+def test_daily_poll_deadline_lists_gaps_and_remains_nonzero(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 13, 13, 50, tzinfo=timezone.utc)]
+    def sleep(seconds):
+        assert seconds == 600
+        clock[0] += timedelta(seconds=seconds)
+    summary = dict(timezone='UTC', outcome='incomplete', written=0, skipped=0,
+                   records=0, missing=1, unavailable=0, cursor='2026-11-12')
+    plan = dict(timezone='UTC', start='2026-11-12', end='2026-11-12', days=1,
+        archives=0, archive_bytes=0, missing=1, files=[dict(symbol='ETHUSDT',
+        type='metrics', interval=None, date='2026-11-12', source=None, bytes=None,
+        target='ETHUSDT/metrics/ETHUSDT-metrics-2026-11-12.csv', status='unpublished')])
+    replies = iter([summary, plan])
+    def execute(command, **kwargs):
+        value = next(replies)
+        return SimpleNamespace(stdout=json.dumps(value), stderr=b'',
+                               returncode=int('outcome' in value))
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+                                  now=lambda: clock[0], sleep=sleep)
+    assert result.returncode == 1
+    record = json.loads(result.stdout)
+    assert record['unresolved_targets'] == [plan['files'][0]['target']]
+    assert '14:00' in record['error']
+    assert clock[0].hour == 14
+
+
+def test_deadline_result_survives_host_schema_and_exit_boundary(host, capsys, monkeypatch):
+    from scripts import cold_runner
+    summary = dict(timezone='UTC', outcome='incomplete', written=1, skipped=2,
+        records=3, missing=1, unavailable=2, unresolved_targets=['ETHUSDT/metrics/day.csv'],
+        error='Publication deadline 14:00 UTC exceeded')
+    monkeypatch.setattr(cold_runner, 'run_daily', lambda command: SimpleNamespace(
+        returncode=1, stdout=json.dumps(summary), stderr=b''))
+    code, record, _ = invoke(host, 'run', capsys, monkeypatch)
+    assert code == 1 and record['counts_status'] == 'reported'
+    assert record['unresolved_targets'] == summary['unresolved_targets']
+    assert record['records'] == 3 and record['unavailable'] == 2
+
+
+@pytest.mark.parametrize('hour', [14, 15])
+@pytest.mark.parametrize('outcome', ['complete', 'incomplete'])
+def test_late_start_attempts_d_minus_one_once_without_polling(monkeypatch, hour, outcome):
+    from datetime import datetime, timezone
+    from scripts import cold_runner
+    commands = []
+    summary = dict(timezone='UTC', outcome=outcome, written=20, skipped=12,
+                   records=51000, missing=0, unavailable=2 if outcome == 'incomplete' else 0,
+                   cursor='2026-11-14')
+    def execute(command, **kwargs):
+        commands.append(command)
+        assert '/app/src/backfill_cursor.py' in command
+        return SimpleNamespace(stdout=json.dumps(summary), stderr=b'',
+                               returncode=int(outcome != 'complete'))
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    def no_sleep(seconds):
+        pytest.fail('Late invocation must not wait for publication')
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+        now=lambda: datetime(2026, 11, 14, hour, tzinfo=timezone.utc), sleep=no_sleep)
+    assert len(commands) == 1
+    assert result.returncode == int(outcome != 'complete')
+    record = json.loads(result.stdout)
+    assert record == dict(summary, attempt_totals=dict(written=20, skipped=12, records=51000))
+
+
+@pytest.mark.parametrize('outcome', ['complete', 'incomplete', 'failed'])
+def test_poll_replay_preserves_counts_when_cursor_advances(monkeypatch, outcome):
+    from datetime import datetime, timedelta, timezone
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 14, 13, 50, tzinfo=timezone.utc)]
+    first = dict(timezone='UTC', outcome='incomplete', written=20, skipped=12,
+                 records=51000, missing=0, unavailable=2, cursor='2026-11-14')
+    last = dict(first, outcome=outcome, written=0, records=1000,
+                unavailable=0 if outcome == 'complete' else 2)
+    plan = dict(timezone='UTC', start='2026-11-13', end='2026-11-13', days=1,
+                archives=1, archive_bytes=1, missing=0, files=[dict(symbol='BTCUSDT',
+                    type='fundingRate', interval=None, date='2026-11-01', source='funding.zip',
+                    bytes=1, target='funding.csv', status='available')])
+    responses = iter([first, plan, last])
+    def execute(command, **kwargs):
+        value = next(responses)
+        return SimpleNamespace(stdout=json.dumps(value), stderr=b'',
+            returncode=int(value.get('outcome', 'complete') != 'complete'))
+    def sleep(seconds):
+        clock[0] += timedelta(seconds=seconds)
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+                                  now=lambda: clock[0], sleep=sleep)
+    summary = json.loads(result.stdout)
+    assert summary['written'] == 20
+    assert summary['skipped'] == 12 and summary['records'] == 1000
+    assert summary['attempt_totals'] == dict(written=20, skipped=24, records=52000)
+    assert summary['outcome'] == outcome
+    assert summary['unavailable'] == last['unavailable']
+    assert summary['missing'] == 0 and summary['cursor'] == '2026-11-14'
+    assert result.returncode == int(outcome != 'complete')
+    cold_runner.Draft202012Validator(cold_runner.RESULT).validate(summary)
+
+
+@pytest.mark.parametrize('exit_path,expected_outcome,passes', [
+    ('complete', 'complete', 2), ('failed', 'failed', 2),
+    ('deadline', 'incomplete', 1), ('late', 'incomplete', 1),
+    ('probe_failed', 'failed', 1), ('probe_invalid', 'failed', 1),
+    ('probe_exception', 'failed', 1), ('replay_invalid', 'failed', 1),
+    ('replay_exception', 'failed', 1), ('sleep_exception', 'failed', 1),
+    ('SIGINT', 'failed', 1), ('SIGTERM', 'failed', 1),
+])
+@pytest.mark.parametrize('boundary', ['runner', 'host'])
+def test_cycle_exit_truth_table(host, capsys, monkeypatch, exit_path,
+                               expected_outcome, passes, boundary):
+    from datetime import datetime, timedelta, timezone
+    import signal
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 14, 15 if exit_path == 'late' else 13,
+                      50, tzinfo=timezone.utc)]
+    first = dict(timezone='UTC', outcome='incomplete', written=20, skipped=12,
+                 records=51000, missing=1, unavailable=2, cursor='2026-11-13')
+    plan = dict(timezone='UTC', start='2026-11-13', end='2026-11-13', days=1,
+                archives=0, archive_bytes=0, missing=1, files=[])
+    if exit_path in ('complete', 'failed', 'replay_invalid', 'replay_exception'):
+        plan.update(archives=1, archive_bytes=1, missing=0, files=[dict(
+            symbol='BTCUSDT', type='metrics', interval=None, date='2026-11-13',
+            source='metrics.zip', bytes=1, target='metrics.csv', status='available')])
+    commands, handlers = [], {}
+    monkeypatch.setattr(signal, 'signal', lambda sig, handler: handlers.setdefault(sig, handler))
+    def execute(command, kwargs):
+        commands.append(command)
+        if len(commands) == 1:
+            value = first
+        elif '--dry-run' in command:
+            if exit_path == 'probe_exception':
+                raise OSError('metadata transport failed')
+            if exit_path == 'probe_invalid':
+                return SimpleNamespace(returncode=0, stdout=b'{}', stderr=b'')
+            value = (dict(first, outcome='failed', written=0, skipped=0, records=0,
+                          missing=0, unavailable=0, error='Missing CHECKSUM')
+                     if exit_path == 'probe_failed' else plan)
+        else:
+            if exit_path == 'replay_exception':
+                raise OSError('cursor transport failed')
+            if exit_path == 'replay_invalid':
+                return SimpleNamespace(returncode=0, stdout=b'{}', stderr=b'')
+            value = dict(first, outcome=exit_path, written=3, skipped=4,
+                         records=1000, missing=0, unavailable=0)
+        return SimpleNamespace(returncode=int(value.get('outcome', 'complete') != 'complete'),
+                               stdout=json.dumps(value).encode(), stderr=b'')
+    def sleep(seconds):
+        if exit_path == 'sleep_exception':
+            raise OSError('wait interrupted')
+        if exit_path in ('SIGINT', 'SIGTERM'):
+            handler = handlers.get(getattr(signal, exit_path))
+            if handler is None:
+                raise RuntimeError('Missing signal handler')
+            handler(getattr(signal, exit_path), None)
+        clock[0] += timedelta(seconds=seconds)
+    daily = cold_runner.run_daily
+    def run(command):
+        return daily(command, now=lambda: clock[0], sleep=sleep)
+    # Signals are installed at the host boundary; direct runner checks use the
+    # same interruption exception that the host handler must raise.
+    if boundary == 'runner' and exit_path in ('SIGINT', 'SIGTERM'):
+        def interrupt(seconds):
+            raise InterruptedError(exit_path)
+        sleep = interrupt
+    monkeypatch.setattr(cold_runner, 'run_daily', run)
+    if boundary == 'host':
+        code, record, _ = invoke(host, 'run', capsys, monkeypatch, result=execute)
+        assert record['counts_status'] == 'reported'
+    else:
+        monkeypatch.setattr(cold_runner.subprocess, 'run', lambda cmd, **kw: execute(cmd, kw))
+        result = run(['docker', '/app/src/backfill_cursor.py'])
+        code, record = result.returncode, json.loads(result.stdout)
+        cold_runner.Draft202012Validator(cold_runner.RESULT).validate(record)
+    assert code == int(expected_outcome != 'complete')
+    assert record['outcome'] == expected_outcome
+    assert record['written'] == (23 if passes == 2 else 20)
+    assert record['attempt_totals'] == dict(written=23 if passes == 2 else 20,
+        skipped=16 if passes == 2 else 12, records=52000 if passes == 2 else 51000)
+    assert record['records'] == (1000 if passes == 2 else 51000)
+    assert record['unavailable'] == (0 if passes == 2 else 2)
+    assert record['missing'] == (0 if passes == 2 else 1)
+    if expected_outcome == 'failed' and passes == 1:
+        assert record['final_state_status'] == 'unknown'
+        assert record['error']
+    if exit_path == 'probe_failed':
+        assert 'CHECKSUM' in record['error']
+
+
+@pytest.mark.parametrize('signum', ['SIGINT', 'SIGTERM'])
+def test_signal_after_cycle_return_keeps_counts_and_signal_exit_status(host, capsys,
+                                                                      monkeypatch, signum):
+    # Report case: the signal lands after run_daily returned its validated
+    # summary, at the host stderr boundary before summary adoption. The write
+    # must keep written and attempt_totals and the exit status stays the signal.
+    import io
+    import signal
+    import sys
+    from scripts import cold_runner
+    sig = getattr(signal, signum)
+    summary = dict(timezone='UTC', outcome='incomplete', written=20, skipped=12,
+                   records=51000, missing=1, unavailable=2, cursor='2026-11-13',
+                   attempt_totals=dict(written=20, skipped=12, records=51000))
+    monkeypatch.setattr(cold_runner, 'run_daily', lambda command: SimpleNamespace(
+        returncode=1, stdout=json.dumps(summary), stderr=b'20 files published\n'))
+    # POSIX delivery model: a signal blocked around the summary write stays
+    # pending instead of raising; re-raised after the write it keeps the exit
+    # status of the signal.
+    mask, pending, dispositions, raised = set(), set(), {}, []
+    def set_handler(number, handler):
+        previous = dispositions.get(number)
+        dispositions[number] = handler
+        return previous
+    def block(how, signals):
+        previous = set(mask)
+        (mask.update if how == signal.SIG_BLOCK else mask.difference_update)(signals)
+        return previous
+    def raise_signal(number):
+        raised.append((number, dispositions.get(number)))
+    monkeypatch.setattr(signal, 'signal', set_handler)
+    monkeypatch.setattr(signal, 'pthread_sigmask', block)
+    monkeypatch.setattr(signal, 'sigpending', lambda: set(pending))
+    monkeypatch.setattr(signal, 'raise_signal', raise_signal)
+    delivered = []
+    class Stderr(io.BytesIO):
+        def write(self, value):
+            if not delivered:
+                delivered.append(sig)
+                if sig in mask:
+                    pending.add(sig)
+                else:
+                    dispositions[sig](sig, None)
+            return super().write(value)
+    monkeypatch.setattr(sys, 'stderr', SimpleNamespace(buffer=Stderr()))
+    code, record, _ = invoke(host, 'run', capsys, monkeypatch)
+    assert record['written'] == 20 and record['skipped'] == 12 and record['records'] == 51000
+    assert record['attempt_totals'] == summary['attempt_totals']
+    assert record['counts_status'] == 'reported'
+    assert code == 1 and record['outcome'] == summary['outcome']
+    assert raised == [(sig, signal.SIG_DFL)]

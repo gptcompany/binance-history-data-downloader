@@ -9,9 +9,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_FILE = ROOT / ".github/runner-policy.json"
-# F-491: the org runner group holding sg-ci and dell-ci excludes public repositories, so a public repository job on a
-# self-hosted selector stays queued forever without an error; public repositories get free hosted minutes instead.
-EXPECTED = {"public": "ubuntu-latest", "private": "${{ vars.CI_RUNS_ON }}"}
+# B5 2026-11-14: hosted minutes are exhausted; only the ephemeral pool is allowed.
+EXPECTED = {"public": ["self-hosted", "Linux", "X64", "gbg-ci"], "private": "${{ vars.CI_RUNS_ON }}"}
+PUBLIC_GUARD = "github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)"
 # Job-level keys from the GitHub Actions workflow syntax; anything else fails closed.
 JOB_KEYS = {
     "name",
@@ -67,6 +67,8 @@ def check_job(job, repo_visibility, local_workflows):
         return
     if "runs-on" not in job:
         raise ValueError("job must have runs-on or a local reusable workflow")
+    if repo_visibility == 'public' and job.get('if') != PUBLIC_GUARD:
+        raise ValueError('Public self-hosted jobs require the same-repository PR guard')
     expected = EXPECTED[repo_visibility]
     if job["runs-on"] != expected:
         raise ValueError(f"{repo_visibility} repository requires runs-on: {expected}, found {job['runs-on']!r}")

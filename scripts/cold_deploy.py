@@ -45,7 +45,7 @@ def render_units(config, release):
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise ValueError('Release directory must be the approved full commit SHA')
     units = {}
-    for name, action, clock in [('binance-cold', 'run', '03:30'),
+    for name, action, clock in [('binance-cold', 'run', '06:30'),
                                 ('binance-cold-drift', 'drift', '03:00')]:
         header = ['[Unit]', f'Description=Binance historical cold {action}']
         if action == 'run':
