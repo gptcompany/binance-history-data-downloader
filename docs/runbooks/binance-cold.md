@@ -28,7 +28,7 @@ approved release and its Python environment; it does not activate anything.
 Use the approved Git-object bootstrap below for `install RELEASE`, then reconcile
 systemd loaded state, the four legacy masks and the two new persistent timers.
 Installation alone never reloads, enables, starts or stops units. Drift must pass
-before enabling `binance-cold.timer` (03:30 UTC) and
+before enabling `binance-cold.timer` (06:30 UTC) and
 `binance-cold-drift.timer` (03:00 UTC). The latter never downloads.
 No live component runs on this Dell.
 
@@ -68,3 +68,23 @@ loaded manager properties and inactive masked legacy schedulers. Investigate any
 finding before further runs. Rollback requires a reviewed owner/inventory SHA
 change and operator reconciliation; do not edit host configuration independently
 or delete cold data to roll back code.
+
+
+## Daily publication window
+
+The target remains yesterday (D-1), never D-2. Start at 06:30 UTC and poll
+HEAD plus CHECKSUM metadata every 15 minutes until 14:00 UTC, as directed by
+the operator. On 2026-11-13, ETHUSDT November 12 metrics were published at
+06:42:05 UTC, bookDepth at 07:20:36 and 1m klines at 07:59:05; the old 03:30
+schedule preceded all three. Binance documents next-day daily publication,
+without promising an hour: https://github.com/binance/binance-public-data.
+
+The host reuses the pinned image's dry-run planner and cursor. New available
+archives trigger an idempotent download immediately; unchanged plans cause only
+metadata probes. The initial incomplete run can receive one additional verified
+pass while establishing the availability baseline. At cutoff, the JSON includes
+`unresolved_targets` for the probed range and monthly empty selections;
+historical declared absences remain in the separate `unavailable` counter;
+exit 1 remains a systemd failure. Container, schema and non-publication errors
+fail immediately. An in-flight download finishes normally; no new download
+starts after 14:00. The existing immutable image remains unchanged.

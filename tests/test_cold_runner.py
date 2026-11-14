@@ -230,3 +230,16 @@ def test_daily_poll_deadline_lists_gaps_and_remains_nonzero(monkeypatch):
     assert record['unresolved_targets'] == [plan['files'][0]['target']]
     assert '14:00' in record['error']
     assert clock[0].hour == 14
+
+
+def test_deadline_result_survives_host_schema_and_exit_boundary(host, capsys, monkeypatch):
+    from scripts import cold_runner
+    summary = dict(timezone='UTC', outcome='incomplete', written=1, skipped=2,
+        records=3, missing=1, unavailable=2, unresolved_targets=['ETHUSDT/metrics/day.csv'],
+        error='Publication deadline 14:00 UTC exceeded')
+    monkeypatch.setattr(cold_runner, 'run_daily', lambda command: SimpleNamespace(
+        returncode=1, stdout=json.dumps(summary), stderr=b''))
+    code, record, _ = invoke(host, 'run', capsys, monkeypatch)
+    assert code == 1 and record['counts_status'] == 'reported'
+    assert record['unresolved_targets'] == summary['unresolved_targets']
+    assert record['records'] == 3 and record['unavailable'] == 2

@@ -1,10 +1,11 @@
 """Approved host actions; pre-run drift and one UTC JSON outcome per invocation."""
 import argparse
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 from jsonschema import Draft202012Validator
 from scripts.cold_deploy import docker_command, inventory
@@ -26,6 +27,7 @@ RESULT = {'type': 'object', 'additionalProperties': False,
               **{key: {'type': ['string', 'null']} for key in ('error_target', 'error_source', 'error_type')},
               cursor_blocked={'type': 'boolean'}, error={'type': 'string'}, finished_at={'type': 'string'})}
 RESULT['properties']['phase'] = {'enum': ['cursor']}
+RESULT['properties']['unresolved_targets'] = DATES
 FILE = {'type': 'object', 'additionalProperties': False,
         'required': ['symbol', 'type', 'interval', 'date', 'source', 'target', 'bytes', 'status'],
         'properties': {**{key: {'type': 'string'} for key in ('symbol', 'type', 'date', 'target')},
@@ -37,6 +39,60 @@ PLAN = {'type': 'object', 'additionalProperties': False,
         'properties': dict(timezone={'const': 'UTC'}, start={'type': 'string'}, end={'type': 'string'},
             files={'type': 'array', 'items': FILE},
             **{key: COUNTER for key in ('days', 'archives', 'archive_bytes', 'missing')})}
+
+
+def run_daily(command, *, now=None, sleep=time.sleep):
+    """Poll the existing HEAD planner; replay downloads only on new availability."""
+    now = now or (lambda: datetime.now(timezone.utc))
+    started = now()
+    deadline = started.replace(hour=14, minute=0, second=0, microsecond=0)
+    end = (started.date() - timedelta(days=1)).isoformat()
+    child = subprocess.run(command, capture_output=True, check=False)
+    seen = set()
+    plan = None
+
+    def pending(result):
+        try:
+            payload = json.loads(result.stdout)
+        except (ValueError, UnicodeError):
+            return None
+        if (result.returncode != 1 or not Draft202012Validator(RESULT).is_valid(payload)
+                or payload['outcome'] != 'incomplete'):
+            return None
+        return payload
+
+    while (summary := pending(child)) is not None:
+        # Same pinned image, mount and read-only dry-run CLI: no archive GETs.
+        probe = command[:command.index('/app/src/backfill_cursor.py')] + [
+            '/app/src/backfill.py', '--start-date', min(summary.get('cursor', end), end),
+            '--end-date', end, '--funding-start', '2026-05-01', '--dry-run']
+        if plan is not None and now() >= deadline:
+            break
+        checked = subprocess.run(probe, capture_output=True, check=False)
+        if checked.returncode:
+            return checked
+        plan = json.loads(checked.stdout)
+        Draft202012Validator(PLAN).validate(plan)
+        available = {(item['source'], item['bytes']) for item in plan['files'] if item['source']}
+        if now() >= deadline:
+            break
+        if available - seen:
+            sys.stderr.buffer.write(child.stderr)
+            child = subprocess.run(command, capture_output=True, check=False)
+            summary = pending(child)
+            if summary is None:
+                return child
+        seen = available
+        remaining = (deadline - now()).total_seconds()
+        if remaining > 0:
+            sleep(min(900, remaining))
+    if plan is not None and summary is not None:
+        summary['unresolved_targets'] = sorted(
+            {item['target'] for item in plan['files'] if item['source'] is None}
+            | {item['target'] for item in summary.get('monthly_gaps', [])})
+        summary['error'] = 'Publication deadline 14:00 UTC exceeded'
+        return subprocess.CompletedProcess(command, 1, json.dumps(summary).encode(), child.stderr)
+    return child
 
 
 def main(argv=None, approved=None):
@@ -78,7 +134,8 @@ def main(argv=None, approved=None):
                 # container boundary and unknown progress until the child validates.
                 result.update(phase='container', counts_status='not_started',
                               **{key: None for key in ('written', 'skipped', 'records', 'missing', 'unavailable')})
-                child = subprocess.run(command, capture_output=True, check=False)
+                child = (run_daily(command) if args.action == 'run' else
+                         subprocess.run(command, capture_output=True, check=False))
                 result.update(returncode=child.returncode, counts_status='unknown')
                 sys.stderr.buffer.write(child.stderr)
                 sys.stderr.buffer.flush()

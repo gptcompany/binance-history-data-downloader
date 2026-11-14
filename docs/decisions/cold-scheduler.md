@@ -39,7 +39,7 @@ The two bookDepth holes on 2026-10-08 remain explicit; no synthetic rows or comp
 
 ## Rendering contract
 
-`scripts/cold_deploy.py` renders `binance-cold.service/.timer` (03:30 UTC)
+`scripts/cold_deploy.py` renders `binance-cold.service/.timer` (06:30 UTC)
 and `binance-cold-drift.service/.timer` (03:00 UTC). The second timer checks
 configuration only; it never schedules downloads. Both are persistent, with
 journal output. The downloader requires the explicit cold path and Docker.
