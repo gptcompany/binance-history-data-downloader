@@ -177,6 +177,10 @@ def main(argv=None, approved=None):
                               **{key: None for key in ('written', 'skipped', 'records', 'missing', 'unavailable')})
                 child = (run_daily(command) if args.action == 'run' else
                          subprocess.run(command, capture_output=True, check=False))
+                # A signal after the cycle returns must not cut the summary
+                # write: it stays pending across the snapshot and the atomic
+                # JSON, then keeps its exit status when re-raised in finally.
+                signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
                 result.update(returncode=child.returncode, counts_status='unknown')
                 sys.stderr.buffer.write(child.stderr)
                 sys.stderr.buffer.flush()
@@ -201,6 +205,11 @@ def main(argv=None, approved=None):
     finally:
         result['finished_at'] = datetime.now(timezone.utc).isoformat()
         print(json.dumps(result, sort_keys=True))
+        pending = signal.sigpending()
         for sig, handler in handlers.items():
-            signal.signal(sig, handler)
+            signal.signal(sig, signal.SIG_DFL if sig in pending else handler)
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, set(handlers))
+        for sig in handlers:
+            if sig in pending:
+                signal.raise_signal(sig)
     return 0 if result['outcome'] == 'complete' else 1
