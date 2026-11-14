@@ -391,3 +391,56 @@ def test_cycle_exit_truth_table(host, capsys, monkeypatch, exit_path,
         assert record['error']
     if exit_path == 'probe_failed':
         assert 'CHECKSUM' in record['error']
+
+
+@pytest.mark.parametrize('signum', ['SIGINT', 'SIGTERM'])
+def test_signal_after_cycle_return_keeps_counts_and_signal_exit_status(host, capsys,
+                                                                      monkeypatch, signum):
+    # Report case: the signal lands after run_daily returned its validated
+    # summary, at the host stderr boundary before summary adoption. The write
+    # must keep written and attempt_totals and the exit status stays the signal.
+    import io
+    import signal
+    import sys
+    from scripts import cold_runner
+    sig = getattr(signal, signum)
+    summary = dict(timezone='UTC', outcome='incomplete', written=20, skipped=12,
+                   records=51000, missing=1, unavailable=2, cursor='2026-11-13',
+                   attempt_totals=dict(written=20, skipped=12, records=51000))
+    monkeypatch.setattr(cold_runner, 'run_daily', lambda command: SimpleNamespace(
+        returncode=1, stdout=json.dumps(summary), stderr=b'20 files published\n'))
+    # POSIX delivery model: a signal blocked around the summary write stays
+    # pending instead of raising; re-raised after the write it keeps the exit
+    # status of the signal.
+    mask, pending, dispositions, raised = set(), set(), {}, []
+    def set_handler(number, handler):
+        previous = dispositions.get(number)
+        dispositions[number] = handler
+        return previous
+    def block(how, signals):
+        previous = set(mask)
+        (mask.update if how == signal.SIG_BLOCK else mask.difference_update)(signals)
+        return previous
+    def raise_signal(number):
+        raised.append((number, dispositions.get(number)))
+    monkeypatch.setattr(signal, 'signal', set_handler)
+    monkeypatch.setattr(signal, 'pthread_sigmask', block)
+    monkeypatch.setattr(signal, 'sigpending', lambda: set(pending))
+    monkeypatch.setattr(signal, 'raise_signal', raise_signal)
+    delivered = []
+    class Stderr(io.BytesIO):
+        def write(self, value):
+            if not delivered:
+                delivered.append(sig)
+                if sig in mask:
+                    pending.add(sig)
+                else:
+                    dispositions[sig](sig, None)
+            return super().write(value)
+    monkeypatch.setattr(sys, 'stderr', SimpleNamespace(buffer=Stderr()))
+    code, record, _ = invoke(host, 'run', capsys, monkeypatch)
+    assert record['written'] == 20 and record['skipped'] == 12 and record['records'] == 51000
+    assert record['attempt_totals'] == summary['attempt_totals']
+    assert record['counts_status'] == 'reported'
+    assert code == 1 and record['outcome'] == summary['outcome']
+    assert raised == [(sig, signal.SIG_DFL)]
