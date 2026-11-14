@@ -266,7 +266,8 @@ def test_late_start_attempts_d_minus_one_once_without_polling(monkeypatch, hour,
         now=lambda: datetime(2026, 11, 14, hour, tzinfo=timezone.utc), sleep=no_sleep)
     assert len(commands) == 1
     assert result.returncode == int(outcome != 'complete')
-    assert json.loads(result.stdout) == summary
+    record = json.loads(result.stdout)
+    assert record == dict(summary, attempt_totals=dict(written=20, skipped=12, records=51000))
 
 
 @pytest.mark.parametrize('outcome', ['complete', 'incomplete', 'failed'])
@@ -294,6 +295,8 @@ def test_poll_replay_preserves_counts_when_cursor_advances(monkeypatch, outcome)
                                   now=lambda: clock[0], sleep=sleep)
     summary = json.loads(result.stdout)
     assert summary['written'] == 20
+    assert summary['skipped'] == 12 and summary['records'] == 1000
+    assert summary['attempt_totals'] == dict(written=20, skipped=24, records=52000)
     assert summary['outcome'] == outcome
     assert summary['unavailable'] == last['unavailable']
     assert summary['missing'] == 0 and summary['cursor'] == '2026-11-14'
