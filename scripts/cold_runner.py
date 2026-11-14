@@ -1,8 +1,10 @@
 """Approved host actions; pre-run drift and one UTC JSON outcome per invocation."""
 import argparse
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -26,6 +28,7 @@ RESULT = {'type': 'object', 'additionalProperties': False,
               monthly_gaps={'type': 'array', 'items': MONTHLY_GAP},
               **{key: {'type': ['string', 'null']} for key in ('error_target', 'error_source', 'error_type')},
               cursor_blocked={'type': 'boolean'}, error={'type': 'string'}, finished_at={'type': 'string'})}
+RESULT['properties']['final_state_status'] = {'enum': ['unknown']}
 RESULT['properties']['phase'] = {'enum': ['cursor']}
 RESULT['properties']['unresolved_targets'] = DATES
 RESULT['properties']['attempt_totals'] = {
@@ -45,78 +48,88 @@ PLAN = {'type': 'object', 'additionalProperties': False,
             **{key: COUNTER for key in ('days', 'archives', 'archive_bytes', 'missing')})}
 
 
+@dataclass
+class CycleState:
+    """Only validated cursor passes contribute progress; probes never replace it."""
+    payload: dict | None = None
+    child: object = None
+    plan: dict | None = None
+    seen: set = field(default_factory=set)
+    totals: dict = field(default_factory=lambda: dict(written=0, skipped=0, records=0))
+
+    def download(self, command):
+        self.child = subprocess.run(command, capture_output=True, check=False)
+        try:
+            payload = json.loads(self.child.stdout)
+            Draft202012Validator(RESULT).validate(payload)
+            if self.child.returncode != int(payload['outcome'] != 'complete'):
+                raise ValueError('Container exit status disagrees with JSON outcome')
+        except Exception as error:
+            if self.payload is not None:
+                raise ValueError('Invalid cursor result') from error
+            return
+        for key in self.totals:
+            self.totals[key] += payload[key]
+        self.payload = payload
+
+    def finish(self, command):
+        if self.payload is not None:
+            self.payload.update(written=self.totals['written'], attempt_totals=dict(self.totals))
+            self.child = subprocess.CompletedProcess(command,
+                int(self.payload['outcome'] != 'complete'),
+                json.dumps(self.payload).encode(), self.child.stderr if self.child else b'')
+
+
 def run_daily(command, *, now=None, sleep=time.sleep):
-    """Poll the existing HEAD planner; replay downloads only on new availability."""
+    """Poll HEAD metadata with a single cycle state finalized on every exit."""
     now = now or (lambda: datetime.now(timezone.utc))
     started = now()
     deadline = started.replace(hour=14, minute=0, second=0, microsecond=0)
     end = (started.date() - timedelta(days=1)).isoformat()
-    totals = dict(written=0, skipped=0, records=0)
-
-    def download():
-        child = subprocess.run(command, capture_output=True, check=False)
-        try:
-            payload = json.loads(child.stdout)
-        except (ValueError, UnicodeError):
-            return child
-        if (not Draft202012Validator(RESULT).is_valid(payload)
-                or child.returncode != (0 if payload['outcome'] == 'complete' else 1)):
-            return child
-        for key in totals:
-            totals[key] += payload[key]
-        payload.update(written=totals['written'], attempt_totals=dict(totals))
-        return subprocess.CompletedProcess(command, child.returncode,
-                                           json.dumps(payload).encode(), child.stderr)
-
-    child = download()
-    # Persistent timer catch-up still attempts D-1 once, without polling.
-    if started >= deadline:
-        return child
-    seen = set()
-    plan = None
-
-    def pending(result):
-        try:
-            payload = json.loads(result.stdout)
-        except (ValueError, UnicodeError):
-            return None
-        if (result.returncode != 1 or not Draft202012Validator(RESULT).is_valid(payload)
-                or payload['outcome'] != 'incomplete'):
-            return None
-        return payload
-
-    while (summary := pending(child)) is not None:
-        # Same pinned image, mount and read-only dry-run CLI: no archive GETs.
-        probe = command[:command.index('/app/src/backfill_cursor.py')] + [
-            '/app/src/backfill.py', '--start-date', min(summary.get('cursor', end), end),
-            '--end-date', end, '--funding-start', '2026-05-01', '--dry-run']
-        if plan is not None and now() >= deadline:
-            break
-        checked = subprocess.run(probe, capture_output=True, check=False)
-        if checked.returncode:
-            return checked
-        plan = json.loads(checked.stdout)
-        Draft202012Validator(PLAN).validate(plan)
-        available = {(item['source'], item['bytes']) for item in plan['files'] if item['source']}
-        if now() >= deadline:
-            break
-        if available - seen:
-            sys.stderr.buffer.write(child.stderr)
-            child = download()
-            summary = pending(child)
-            if summary is None:
-                return child
-        seen = available
-        remaining = (deadline - now()).total_seconds()
-        if remaining > 0:
-            sleep(min(900, remaining))
-    if plan is not None and summary is not None:
-        summary['unresolved_targets'] = sorted(
-            {item['target'] for item in plan['files'] if item['source'] is None}
-            | {item['target'] for item in summary.get('monthly_gaps', [])})
-        summary['error'] = 'Publication deadline 14:00 UTC exceeded'
-        return subprocess.CompletedProcess(command, 1, json.dumps(summary).encode(), child.stderr)
-    return child
+    state = CycleState()
+    try:
+        state.download(command)
+        # Persistent timer catch-up still attempts D-1 once, without polling.
+        while (started < deadline and state.payload is not None
+               and state.payload['outcome'] == 'incomplete'):
+            probe = command[:command.index('/app/src/backfill_cursor.py')] + [
+                '/app/src/backfill.py', '--start-date', min(state.payload.get('cursor', end), end),
+                '--end-date', end, '--funding-start', '2026-05-01', '--dry-run']
+            if state.plan is not None and now() >= deadline:
+                break
+            checked = subprocess.run(probe, capture_output=True, check=False)
+            sys.stderr.buffer.write(checked.stderr)
+            if checked.returncode:
+                failure = json.loads(checked.stdout)
+                Draft202012Validator(RESULT).validate(failure)
+                raise ValueError(failure.get('error', 'Metadata probe failed'))
+            state.plan = json.loads(checked.stdout)
+            Draft202012Validator(PLAN).validate(state.plan)
+            available = {(item['source'], item['bytes']) for item in state.plan['files'] if item['source']}
+            if now() >= deadline:
+                break
+            if available - state.seen:
+                sys.stderr.buffer.write(state.child.stderr)
+                state.download(command)
+                if state.payload['outcome'] != 'incomplete':
+                    break
+            state.seen = available
+            remaining = (deadline - now()).total_seconds()
+            if remaining > 0:
+                sleep(min(900, remaining))
+        if state.plan is not None and state.payload['outcome'] == 'incomplete':
+            state.payload['unresolved_targets'] = sorted(
+                {item['target'] for item in state.plan['files'] if item['source'] is None}
+                | {item['target'] for item in state.payload.get('monthly_gaps', [])})
+            state.payload['error'] = 'Publication deadline 14:00 UTC exceeded'
+    except (Exception, KeyboardInterrupt) as error:
+        if state.payload is None:
+            raise
+        state.payload.update(outcome='failed', error=str(error) or type(error).__name__,
+                             final_state_status='unknown')
+    finally:
+        state.finish(command)
+    return state.child
 
 
 def main(argv=None, approved=None):
@@ -131,6 +144,10 @@ def main(argv=None, approved=None):
     approved = approved or Path(__file__).parents[1]
     result = dict(timezone='UTC', outcome='complete', written=0, skipped=0,
                   records=0, missing=0, unavailable=0, phase='preflight', counts_status='not_started')
+    def interrupted(signum, frame):
+        raise InterruptedError(signal.Signals(signum).name)
+
+    handlers = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
         if args.dry_run and args.action != 'backfill':
             raise ValueError('Only backfill supports dry-run')
@@ -179,8 +196,11 @@ def main(argv=None, approved=None):
                     raise ValueError('Container exit status disagrees with JSON outcome')
                 result = dict(summary, phase=summary.get('phase', 'container'),
                               counts_status='reported', returncode=child.returncode)
-    except Exception as error:
-        result.update(outcome='failed', error=str(error))
-    result['finished_at'] = datetime.now(timezone.utc).isoformat()
-    print(json.dumps(result, sort_keys=True))
+    except (Exception, KeyboardInterrupt) as error:
+        result.update(outcome='failed', error=str(error) or type(error).__name__)
+    finally:
+        result['finished_at'] = datetime.now(timezone.utc).isoformat()
+        print(json.dumps(result, sort_keys=True))
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
     return 0 if result['outcome'] == 'complete' else 1

@@ -98,3 +98,13 @@ files (include le riverifiche). These are operation counts, not distinct files o
 rows. `missing`, `unavailable`, cursor and outcome always describe the latest
 state, so the two declared bookDepth absences remain visible without multiplying
 them by the number of passes.
+
+
+The host owns one daily cycle state and finalizes its summary in `finally`.
+A failed/invalid metadata probe, invalid cursor replay, exception, SIGINT or
+SIGTERM preserves counters from every validated cursor pass and exits failed.
+`final_state_status=unknown` marks that the final filesystem state could not be
+confirmed; missing/unavailable and last-pass counts remain the last validated
+observations, while `attempt_totals` retains all validated attempts. Probe error
+JSON contributes no counts. Before any validated pass, existing unknown or
+not-started count semantics apply. SIGKILL cannot produce a process summary.

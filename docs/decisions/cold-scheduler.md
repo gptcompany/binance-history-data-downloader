@@ -200,3 +200,13 @@ passes and includes repeated verification (include le riverifiche), not unique
 files or rows. Current gaps, unavailable counts and outcome come from the last
 pass. This reuses the cursor result and standard-library arithmetic, without
 changing the immutable container or introducing a second download implementation.
+
+
+The host owns one daily cycle state and finalizes its summary in `finally`.
+A failed/invalid metadata probe, invalid cursor replay, exception, SIGINT or
+SIGTERM preserves counters from every validated cursor pass and exits failed.
+`final_state_status=unknown` marks that the final filesystem state could not be
+confirmed; missing/unavailable and last-pass counts remain the last validated
+observations, while `attempt_totals` retains all validated attempts. Probe error
+JSON contributes no counts. Before any validated pass, existing unknown or
+not-started count semantics apply. SIGKILL cannot produce a process summary.
