@@ -302,3 +302,92 @@ def test_poll_replay_preserves_counts_when_cursor_advances(monkeypatch, outcome)
     assert summary['missing'] == 0 and summary['cursor'] == '2026-11-14'
     assert result.returncode == int(outcome != 'complete')
     cold_runner.Draft202012Validator(cold_runner.RESULT).validate(summary)
+
+
+@pytest.mark.parametrize('exit_path,expected_outcome,passes', [
+    ('complete', 'complete', 2), ('failed', 'failed', 2),
+    ('deadline', 'incomplete', 1), ('late', 'incomplete', 1),
+    ('probe_failed', 'failed', 1), ('probe_invalid', 'failed', 1),
+    ('probe_exception', 'failed', 1), ('replay_invalid', 'failed', 1),
+    ('replay_exception', 'failed', 1), ('sleep_exception', 'failed', 1),
+    ('SIGINT', 'failed', 1), ('SIGTERM', 'failed', 1),
+])
+@pytest.mark.parametrize('boundary', ['runner', 'host'])
+def test_cycle_exit_truth_table(host, capsys, monkeypatch, exit_path,
+                               expected_outcome, passes, boundary):
+    from datetime import datetime, timedelta, timezone
+    import signal
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 14, 15 if exit_path == 'late' else 13,
+                      50, tzinfo=timezone.utc)]
+    first = dict(timezone='UTC', outcome='incomplete', written=20, skipped=12,
+                 records=51000, missing=1, unavailable=2, cursor='2026-11-13')
+    plan = dict(timezone='UTC', start='2026-11-13', end='2026-11-13', days=1,
+                archives=0, archive_bytes=0, missing=1, files=[])
+    if exit_path in ('complete', 'failed', 'replay_invalid', 'replay_exception'):
+        plan.update(archives=1, archive_bytes=1, missing=0, files=[dict(
+            symbol='BTCUSDT', type='metrics', interval=None, date='2026-11-13',
+            source='metrics.zip', bytes=1, target='metrics.csv', status='available')])
+    commands, handlers = [], {}
+    monkeypatch.setattr(signal, 'signal', lambda sig, handler: handlers.setdefault(sig, handler))
+    def execute(command, kwargs):
+        commands.append(command)
+        if len(commands) == 1:
+            value = first
+        elif '--dry-run' in command:
+            if exit_path == 'probe_exception':
+                raise OSError('metadata transport failed')
+            if exit_path == 'probe_invalid':
+                return SimpleNamespace(returncode=0, stdout=b'{}', stderr=b'')
+            value = (dict(first, outcome='failed', written=0, skipped=0, records=0,
+                          missing=0, unavailable=0, error='Missing CHECKSUM')
+                     if exit_path == 'probe_failed' else plan)
+        else:
+            if exit_path == 'replay_exception':
+                raise OSError('cursor transport failed')
+            if exit_path == 'replay_invalid':
+                return SimpleNamespace(returncode=0, stdout=b'{}', stderr=b'')
+            value = dict(first, outcome=exit_path, written=3, skipped=4,
+                         records=1000, missing=0, unavailable=0)
+        return SimpleNamespace(returncode=int(value.get('outcome', 'complete') != 'complete'),
+                               stdout=json.dumps(value).encode(), stderr=b'')
+    def sleep(seconds):
+        if exit_path == 'sleep_exception':
+            raise OSError('wait interrupted')
+        if exit_path in ('SIGINT', 'SIGTERM'):
+            handler = handlers.get(getattr(signal, exit_path))
+            if handler is None:
+                raise RuntimeError('Missing signal handler')
+            handler(getattr(signal, exit_path), None)
+        clock[0] += timedelta(seconds=seconds)
+    daily = cold_runner.run_daily
+    def run(command):
+        return daily(command, now=lambda: clock[0], sleep=sleep)
+    # Signals are installed at the host boundary; direct runner checks use the
+    # same interruption exception that the host handler must raise.
+    if boundary == 'runner' and exit_path in ('SIGINT', 'SIGTERM'):
+        def interrupt(seconds):
+            raise InterruptedError(exit_path)
+        sleep = interrupt
+    monkeypatch.setattr(cold_runner, 'run_daily', run)
+    if boundary == 'host':
+        code, record, _ = invoke(host, 'run', capsys, monkeypatch, result=execute)
+        assert record['counts_status'] == 'reported'
+    else:
+        monkeypatch.setattr(cold_runner.subprocess, 'run', lambda cmd, **kw: execute(cmd, kw))
+        result = run(['docker', '/app/src/backfill_cursor.py'])
+        code, record = result.returncode, json.loads(result.stdout)
+        cold_runner.Draft202012Validator(cold_runner.RESULT).validate(record)
+    assert code == int(expected_outcome != 'complete')
+    assert record['outcome'] == expected_outcome
+    assert record['written'] == (23 if passes == 2 else 20)
+    assert record['attempt_totals'] == dict(written=23 if passes == 2 else 20,
+        skipped=16 if passes == 2 else 12, records=52000 if passes == 2 else 51000)
+    assert record['records'] == (1000 if passes == 2 else 51000)
+    assert record['unavailable'] == (0 if passes == 2 else 2)
+    assert record['missing'] == (0 if passes == 2 else 1)
+    if expected_outcome == 'failed' and passes == 1:
+        assert record['final_state_status'] == 'unknown'
+        assert record['error']
+    if exit_path == 'probe_failed':
+        assert 'CHECKSUM' in record['error']
