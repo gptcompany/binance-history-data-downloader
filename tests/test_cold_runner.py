@@ -243,3 +243,59 @@ def test_deadline_result_survives_host_schema_and_exit_boundary(host, capsys, mo
     assert code == 1 and record['counts_status'] == 'reported'
     assert record['unresolved_targets'] == summary['unresolved_targets']
     assert record['records'] == 3 and record['unavailable'] == 2
+
+
+@pytest.mark.parametrize('hour', [14, 15])
+@pytest.mark.parametrize('outcome', ['complete', 'incomplete'])
+def test_late_start_attempts_d_minus_one_once_without_polling(monkeypatch, hour, outcome):
+    from datetime import datetime, timezone
+    from scripts import cold_runner
+    commands = []
+    summary = dict(timezone='UTC', outcome=outcome, written=20, skipped=12,
+                   records=51000, missing=0, unavailable=2 if outcome == 'incomplete' else 0,
+                   cursor='2026-11-14')
+    def execute(command, **kwargs):
+        commands.append(command)
+        assert '/app/src/backfill_cursor.py' in command
+        return SimpleNamespace(stdout=json.dumps(summary), stderr=b'',
+                               returncode=int(outcome != 'complete'))
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    def no_sleep(seconds):
+        pytest.fail('Late invocation must not wait for publication')
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+        now=lambda: datetime(2026, 11, 14, hour, tzinfo=timezone.utc), sleep=no_sleep)
+    assert len(commands) == 1
+    assert result.returncode == int(outcome != 'complete')
+    assert json.loads(result.stdout) == summary
+
+
+@pytest.mark.parametrize('outcome', ['complete', 'incomplete', 'failed'])
+def test_poll_replay_preserves_counts_when_cursor_advances(monkeypatch, outcome):
+    from datetime import datetime, timedelta, timezone
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 14, 13, 50, tzinfo=timezone.utc)]
+    first = dict(timezone='UTC', outcome='incomplete', written=20, skipped=12,
+                 records=51000, missing=0, unavailable=2, cursor='2026-11-14')
+    last = dict(first, outcome=outcome, written=0, records=1000,
+                unavailable=0 if outcome == 'complete' else 2)
+    plan = dict(timezone='UTC', start='2026-11-13', end='2026-11-13', days=1,
+                archives=1, archive_bytes=1, missing=0, files=[dict(symbol='BTCUSDT',
+                    type='fundingRate', interval=None, date='2026-11-01', source='funding.zip',
+                    bytes=1, target='funding.csv', status='available')])
+    responses = iter([first, plan, last])
+    def execute(command, **kwargs):
+        value = next(responses)
+        return SimpleNamespace(stdout=json.dumps(value), stderr=b'',
+            returncode=int(value.get('outcome', 'complete') != 'complete'))
+    def sleep(seconds):
+        clock[0] += timedelta(seconds=seconds)
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+                                  now=lambda: clock[0], sleep=sleep)
+    summary = json.loads(result.stdout)
+    assert summary['written'] == 20
+    assert summary['outcome'] == outcome
+    assert summary['unavailable'] == last['unavailable']
+    assert summary['missing'] == 0 and summary['cursor'] == '2026-11-14'
+    assert result.returncode == int(outcome != 'complete')
+    cold_runner.Draft202012Validator(cold_runner.RESULT).validate(summary)
