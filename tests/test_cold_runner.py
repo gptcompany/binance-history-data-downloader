@@ -164,3 +164,69 @@ def test_error_context_schema_is_nullable_string(field, value):
 
     validator = Draft202012Validator(RESULT['properties'][field])
     assert validator.is_valid(value) == (value is None or isinstance(value, str))
+
+
+def test_daily_poll_downloads_new_sources_without_replaying_unchanged_plan(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 13, 6, 30, tzinfo=timezone.utc)]
+    sleeps, commands = [], []
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += timedelta(seconds=seconds)
+    def payload(outcome, missing):
+        return dict(timezone='UTC', outcome=outcome, written=0, skipped=0, records=0,
+                    missing=missing, unavailable=0, cursor='2026-11-12')
+    def plan(available):
+        return dict(timezone='UTC', start='2026-11-12', end='2026-11-12', days=1,
+            archives=len(available), archive_bytes=len(available), missing=2-len(available),
+            files=[dict(symbol='ETHUSDT', type=kind, interval=None, date='2026-11-12',
+                target=kind+'.csv', source=kind if kind in available else None,
+                bytes=1 if kind in available else None,
+                status='available' if kind in available else 'unpublished')
+                for kind in ('metrics', 'bookDepth')])
+    responses = iter([payload('incomplete', 2), plan(()), plan(('metrics',)),
+        payload('incomplete', 1), plan(('metrics',)), plan(('metrics', 'bookDepth')),
+        payload('complete', 0)])
+    def execute(command, **kwargs):
+        commands.append(command)
+        value = next(responses)
+        return SimpleNamespace(stdout=json.dumps(value), stderr=b'',
+            returncode=0 if 'outcome' not in value or value['outcome']=='complete' else 1)
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+                                  now=lambda: clock[0], sleep=sleep)
+    assert result.returncode == 0
+    assert sleeps == [900, 900, 900]
+    assert sum('/app/src/backfill_cursor.py' in cmd for cmd in commands) == 3
+    probes = [cmd for cmd in commands if '--dry-run' in cmd]
+    assert len(probes) == 4
+    assert all(cmd[cmd.index('--end-date')+1] == '2026-11-12' for cmd in probes)
+
+
+def test_daily_poll_deadline_lists_gaps_and_remains_nonzero(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 13, 13, 50, tzinfo=timezone.utc)]
+    def sleep(seconds):
+        assert seconds == 600
+        clock[0] += timedelta(seconds=seconds)
+    summary = dict(timezone='UTC', outcome='incomplete', written=0, skipped=0,
+                   records=0, missing=1, unavailable=0, cursor='2026-11-12')
+    plan = dict(timezone='UTC', start='2026-11-12', end='2026-11-12', days=1,
+        archives=0, archive_bytes=0, missing=1, files=[dict(symbol='ETHUSDT',
+        type='metrics', interval=None, date='2026-11-12', source=None, bytes=None,
+        target='ETHUSDT/metrics/ETHUSDT-metrics-2026-11-12.csv', status='unpublished')])
+    replies = iter([summary, plan])
+    def execute(command, **kwargs):
+        value = next(replies)
+        return SimpleNamespace(stdout=json.dumps(value), stderr=b'',
+                               returncode=int('outcome' in value))
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+                                  now=lambda: clock[0], sleep=sleep)
+    assert result.returncode == 1
+    record = json.loads(result.stdout)
+    assert record['unresolved_targets'] == [plan['files'][0]['target']]
+    assert '14:00' in record['error']
+    assert clock[0].hour == 14

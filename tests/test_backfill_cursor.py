@@ -158,7 +158,7 @@ def test_cursor_persistence_failure_preserves_published_counts(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize('missing,expected', [(0, 0), (1, 1)])
-def test_daily_run_waits_for_the_producers_next_publication_day(
+def test_daily_run_keeps_yesterday_as_its_target(
         tmp_path, monkeypatch, capsys, missing, expected):
     import backfill_cursor as cursor
     calls = []
@@ -174,7 +174,7 @@ def test_daily_run_waits_for_the_producers_next_publication_day(
         # must still reach the existing nonzero outcome boundary.
         return dict(timezone='UTC', outcome='incomplete' if missing else 'complete',
                     written=0, skipped=0, records=0, missing=missing, unavailable=0,
-                    settled_days=[] if missing else ['2026-11-11'], complete_days=[])
+                    settled_days=[] if missing else ['2026-11-11', '2026-11-12'], complete_days=[])
 
     monkeypatch.setattr(cursor, 'make_plan', plan)
     monkeypatch.setattr(cursor, 'execute_plan', execute)
@@ -183,5 +183,5 @@ def test_daily_run_waits_for_the_producers_next_publication_day(
     assert cursor.main(['--initial-date', '2026-11-11', '--data-root', str(tmp_path)],
                        today=date(2026, 11, 13)) == expected
     result = json.loads(capsys.readouterr().out)
-    assert calls[0] == (date(2026, 11, 11), date(2026, 11, 11))
-    assert result['cursor'] == ('2026-11-11' if missing else '2026-11-12')
+    assert calls[0] == (date(2026, 11, 11), date(2026, 11, 12))
+    assert result['cursor'] == ('2026-11-11' if missing else '2026-11-13')

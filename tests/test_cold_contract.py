@@ -35,7 +35,7 @@ def test_only_one_download_timer_and_independent_drift_timer(tmp_path):
     assert "'run'" in service['Service']['ExecStart']
     assert service['Service']['StandardOutput'] == 'journal'
     assert service['Service']['StandardError'] == 'journal'
-    for name, hour in [('binance-cold', '03:30'), ('binance-cold-drift', '03:00')]:
+    for name, hour in [('binance-cold', '06:30'), ('binance-cold-drift', '03:00')]:
         timer = parse_unit(units[name + '.timer'])['Timer']
         assert timer['OnCalendar'] == f'*-*-* {hour}:00 UTC'
         assert timer['Persistent'] == 'true'
