@@ -120,7 +120,8 @@ def run_daily(command, *, now=None, sleep=time.sleep):
         if state.plan is not None and state.payload['outcome'] == 'incomplete':
             state.payload['unresolved_targets'] = sorted(
                 {item['target'] for item in state.plan['files'] if item['source'] is None}
-                | {item['target'] for item in state.payload.get('monthly_gaps', [])})
+                | {item['target'] for item in state.payload.get('monthly_gaps', [])
+                   if item['status'] == 'missing'})
             state.payload['error'] = 'Publication deadline 14:00 UTC exceeded'
     except (Exception, KeyboardInterrupt) as error:
         if state.payload is None:
