@@ -502,3 +502,24 @@ def test_deadline_unresolved_targets_exclude_declared_absences(monkeypatch):
                                       0, clock[0] + timedelta(seconds=seconds)))
     assert json.loads(result.stdout)['unresolved_targets'] == [
         'B/day.csv', 'ETHUSDT/metrics/real.csv']
+
+
+@pytest.mark.parametrize('action', ['run', 'backfill'])
+def test_interruption_during_first_container_run_reports_unknown_progress(
+        host, capsys, monkeypatch, action):
+    # The container may already have published files when the signal lands:
+    # progress is unknown, never "not_started" (that is for launch failures).
+    def interrupted(command, kwargs):
+        raise InterruptedError('SIGTERM')
+    extra = ('--start-date', '2026-11-01', '--end-date', '2026-11-02') if action == 'backfill' else ()
+    code, record, _ = invoke(host, action, capsys, monkeypatch, result=interrupted, extra=extra)
+    assert code == 1 and record['outcome'] == 'failed'
+    assert record['counts_status'] == 'unknown'
+
+
+def test_launch_failure_reports_not_started(host, capsys, monkeypatch):
+    def missing(command, kwargs):
+        raise FileNotFoundError('docker')
+    code, record, _ = invoke(host, 'backfill', capsys, monkeypatch, result=missing,
+                             extra=('--start-date', '2026-11-01', '--end-date', '2026-11-02'))
+    assert code == 1 and record['counts_status'] == 'not_started'
