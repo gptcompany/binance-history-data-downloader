@@ -194,6 +194,8 @@ def main(argv=None, approved=None):
                 try:
                     child = (run_daily(command) if args.action == 'run' else
                              subprocess.run(command, capture_output=True, check=False))
+                except InterruptedError:
+                    raise  # signal handler: an OSError subclass, but not a launch failure
                 except OSError:
                     result['counts_status'] = 'not_started'
                     raise
