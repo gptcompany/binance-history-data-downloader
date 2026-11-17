@@ -474,18 +474,23 @@ c.main(['run', {str(release)!r}, '--unit-directory', {str(units)!r}], approved=P
     assert done.returncode == -15
 
 
-def test_deadline_unresolved_targets_exclude_declared_monthly_absences(monkeypatch):
-    # A monthly gap with status 'unavailable' is an acknowledged historical
-    # absence, not a publication gap: it must not appear as unresolved.
-    from datetime import datetime, timezone
+def test_deadline_unresolved_targets_exclude_declared_absences(monkeypatch):
+    # Declared absences (monthly gap 'unavailable' or a daily target listed in
+    # config/unavailable.json) are not publication gaps: never unresolved.
+    from datetime import datetime, timedelta, timezone
     from scripts import cold_runner
-    clock = [datetime(2026, 11, 13, 14, 0, tzinfo=timezone.utc)]
+    clock = [datetime(2026, 11, 13, 13, 50, tzinfo=timezone.utc)]
     gaps = [dict(target='A/day.csv', source='s', status='unavailable', reason='absent'),
             dict(target='B/day.csv', source='s', status='missing', reason='no rows')]
     summary = dict(timezone='UTC', outcome='incomplete', written=0, skipped=0, records=0,
                    missing=1, unavailable=1, cursor='2026-11-12', monthly_gaps=gaps)
-    plan = dict(timezone='UTC', start='2026-11-12', end='2026-11-12', days=1,
-        archives=0, archive_bytes=0, missing=1, files=[])
+    def entry(symbol, kind, day, target):
+        return dict(symbol=symbol, type=kind, interval=None, date=day, source=None,
+                    bytes=None, target=target, status='unpublished')
+    plan = dict(timezone='UTC', start='2026-10-08', end='2026-11-12', days=2,
+        archives=0, archive_bytes=0, missing=2, files=[
+            entry('BTCUSDT', 'bookDepth', '2026-10-08', 'BTCUSDT/bookDepth/declared.csv'),
+            entry('ETHUSDT', 'metrics', '2026-11-12', 'ETHUSDT/metrics/real.csv')])
     replies = iter([summary, plan])
     def execute(command, **kwargs):
         value = next(replies)
@@ -493,5 +498,7 @@ def test_deadline_unresolved_targets_exclude_declared_monthly_absences(monkeypat
                                returncode=int('outcome' in value))
     monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
     result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
-                                  now=lambda: clock[0], sleep=lambda seconds: None)
-    assert json.loads(result.stdout)['unresolved_targets'] == ['B/day.csv']
+                                  now=lambda: clock[0], sleep=lambda seconds: clock.__setitem__(
+                                      0, clock[0] + timedelta(seconds=seconds)))
+    assert json.loads(result.stdout)['unresolved_targets'] == [
+        'B/day.csv', 'ETHUSDT/metrics/real.csv']
