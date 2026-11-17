@@ -21,5 +21,5 @@ def test_versioned_inventory_is_the_complete_cold_deployment_source():
     assert config['image_source_sha'] == 'd979c2c47d9a87f5e7d17a9a9ecc45299d836270'
     units = render_units(config, '/opt/binance-cold/' + config['image_source_sha'])
     assert len(units) == 4
-    assert '03:30:00 UTC' in units['binance-cold.timer']
+    assert '06:30:00 UTC' in units['binance-cold.timer']
     assert '03:00:00 UTC' in units['binance-cold-drift.timer']
