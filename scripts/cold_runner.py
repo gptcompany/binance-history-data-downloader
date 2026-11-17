@@ -80,6 +80,16 @@ class CycleState:
                 json.dumps(self.payload).encode(), self.child.stderr if self.child else b'')
 
 
+ABSENCE_ID = ('symbol', 'type', 'interval', 'date')  # same identity as src/backfill_executor.py
+ABSENCES_FILE = Path(__file__).parents[1] / 'config/unavailable.json'
+
+
+def declared_absences():
+    """Identities the cursor settles as unavailable; the dry-run plan does not classify them."""
+    return {tuple(entry.get(key) for key in ABSENCE_ID)
+            for entry in json.loads(ABSENCES_FILE.read_text())}
+
+
 def run_daily(command, *, now=None, sleep=time.sleep):
     """Poll HEAD metadata with a single cycle state finalized on every exit."""
     now = now or (lambda: datetime.now(timezone.utc))
@@ -118,8 +128,10 @@ def run_daily(command, *, now=None, sleep=time.sleep):
             if remaining > 0:
                 sleep(min(900, remaining))
         if state.plan is not None and state.payload['outcome'] == 'incomplete':
+            absences = declared_absences()
             state.payload['unresolved_targets'] = sorted(
-                {item['target'] for item in state.plan['files'] if item['source'] is None}
+                {item['target'] for item in state.plan['files']
+                 if item['source'] is None and tuple(item[key] for key in ABSENCE_ID) not in absences}
                 | {item['target'] for item in state.payload.get('monthly_gaps', [])
                    if item['status'] == 'missing'})
             state.payload['error'] = 'Publication deadline 14:00 UTC exceeded'
