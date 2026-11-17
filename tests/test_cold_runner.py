@@ -472,3 +472,26 @@ c.main(['run', {str(release)!r}, '--unit-directory', {str(units)!r}], approved=P
     done = subprocess.run([sys.executable, '-B', '-c', program], capture_output=True)
     assert json.loads(done.stdout)['written'] == 2
     assert done.returncode == -15
+
+
+def test_deadline_unresolved_targets_exclude_declared_monthly_absences(monkeypatch):
+    # A monthly gap with status 'unavailable' is an acknowledged historical
+    # absence, not a publication gap: it must not appear as unresolved.
+    from datetime import datetime, timezone
+    from scripts import cold_runner
+    clock = [datetime(2026, 11, 13, 14, 0, tzinfo=timezone.utc)]
+    gaps = [dict(target='A/day.csv', source='s', status='unavailable', reason='absent'),
+            dict(target='B/day.csv', source='s', status='missing', reason='no rows')]
+    summary = dict(timezone='UTC', outcome='incomplete', written=0, skipped=0, records=0,
+                   missing=1, unavailable=1, cursor='2026-11-12', monthly_gaps=gaps)
+    plan = dict(timezone='UTC', start='2026-11-12', end='2026-11-12', days=1,
+        archives=0, archive_bytes=0, missing=1, files=[])
+    replies = iter([summary, plan])
+    def execute(command, **kwargs):
+        value = next(replies)
+        return SimpleNamespace(stdout=json.dumps(value), stderr=b'',
+                               returncode=int('outcome' in value))
+    monkeypatch.setattr(cold_runner.subprocess, 'run', execute)
+    result = cold_runner.run_daily(['docker', '/app/src/backfill_cursor.py'],
+                                  now=lambda: clock[0], sleep=lambda seconds: None)
+    assert json.loads(result.stdout)['unresolved_targets'] == ['B/day.csv']
