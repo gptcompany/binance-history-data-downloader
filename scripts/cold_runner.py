@@ -188,8 +188,15 @@ def main(argv=None, approved=None):
                 # container boundary and unknown progress until the child validates.
                 result.update(phase='container', counts_status='not_started',
                               **{key: None for key in ('written', 'skipped', 'records', 'missing', 'unavailable')})
-                child = (run_daily(command) if args.action == 'run' else
-                         subprocess.run(command, capture_output=True, check=False))
+                # Past the launch boundary an interruption leaves progress unknown;
+                # only a launch failure (OSError) confirms nothing started.
+                result['counts_status'] = 'unknown'
+                try:
+                    child = (run_daily(command) if args.action == 'run' else
+                             subprocess.run(command, capture_output=True, check=False))
+                except OSError:
+                    result['counts_status'] = 'not_started'
+                    raise
                 # A signal after the cycle returns must not cut the summary
                 # write: it stays pending across the snapshot and the atomic
                 # JSON, then keeps its exit status when re-raised in finally.
