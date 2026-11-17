@@ -444,3 +444,31 @@ def test_signal_after_cycle_return_keeps_counts_and_signal_exit_status(host, cap
     assert record['counts_status'] == 'reported'
     assert code == 1 and record['outcome'] == summary['outcome']
     assert raised == [(sig, signal.SIG_DFL)]
+
+
+def test_signal_pending_at_summary_write_keeps_json_on_piped_stdout(host):
+    # Real subprocess with a piped stdout: block-buffered output is lost when
+    # the pending signal terminates the process with the default disposition,
+    # so the summary must be flushed before signals are unblocked.
+    import subprocess
+    import sys
+    approved, release, units = host
+    repo = Path(__file__).parents[1]
+    program = f'''
+import json, signal, sys
+from pathlib import Path
+from types import SimpleNamespace
+sys.path.insert(0, {str(repo)!r})
+from scripts import cold_runner as c
+summary = dict(timezone='UTC', outcome='complete', written=2, skipped=3, records=5, missing=0)
+c.drift = lambda *args: []
+c.run_daily = lambda cmd: SimpleNamespace(returncode=0, stdout=json.dumps(summary), stderr=b'')
+class Sink:
+    def write(self, value): signal.raise_signal(signal.SIGTERM)
+    def flush(self): pass
+sys.stderr = SimpleNamespace(buffer=Sink(), flush=lambda: None)
+c.main(['run', {str(release)!r}, '--unit-directory', {str(units)!r}], approved=Path({str(approved)!r}))
+'''
+    done = subprocess.run([sys.executable, '-B', '-c', program], capture_output=True)
+    assert json.loads(done.stdout)['written'] == 2
+    assert done.returncode == -15

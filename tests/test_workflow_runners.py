@@ -10,7 +10,7 @@ checker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checker)
 
 PUBLIC = "[self-hosted, Linux, X64, gbg-ci]"
-GUARD = "github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)"
+GUARD = "github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)"
 
 GENERIC = "${{ vars.CI_RUNS_ON }}"
 
