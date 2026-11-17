@@ -204,7 +204,7 @@ def main(argv=None, approved=None):
         result.update(outcome='failed', error=str(error) or type(error).__name__)
     finally:
         result['finished_at'] = datetime.now(timezone.utc).isoformat()
-        print(json.dumps(result, sort_keys=True))
+        print(json.dumps(result, sort_keys=True), flush=True)
         pending = signal.sigpending()
         for sig, handler in handlers.items():
             signal.signal(sig, signal.SIG_DFL if sig in pending else handler)

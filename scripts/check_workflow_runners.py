@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 POLICY_FILE = ROOT / ".github/runner-policy.json"
 # B5 2026-11-14: hosted minutes are exhausted; only the ephemeral pool is allowed.
 EXPECTED = {"public": ["self-hosted", "Linux", "X64", "gbg-ci"], "private": "${{ vars.CI_RUNS_ON }}"}
-PUBLIC_GUARD = "github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)"
+PUBLIC_GUARD = "github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)"
 # Job-level keys from the GitHub Actions workflow syntax; anything else fails closed.
 JOB_KEYS = {
     "name",
